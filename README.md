@@ -139,3 +139,9 @@ The CPU side is a scripted TLM initiator rather than a full RISC-V ISS. SPI and 
 
 - docs/design_note.md — architecture, timing, schema, IRQ, DMI, reset, verification and scaling decisions.
 - docs/benchmark_report.md — measured performance, DMI comparison and trace overhead.
+
+## License and third-party attribution
+
+- Project source code and documentation: [MIT License](LICENSE).
+- Third-party dependency and reference attribution: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- SystemC and PyYAML remain under their respective upstream licenses; they are external dependencies and are not bundled or relicensed by this project.
