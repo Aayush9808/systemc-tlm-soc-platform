@@ -20,6 +20,7 @@ find_library(SYSTEMC_LIBRARY
 )
 
 enable_testing()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 set(GENERATED_REGISTER_SOURCES
     generated/src/uart0_registers.cpp
@@ -62,6 +63,7 @@ target_include_directories(soc_bench PRIVATE
 target_link_libraries(soc_bench PRIVATE "\${SYSTEMC_LIBRARY}")
 
 add_test(NAME tlm_policy_test COMMAND tlm_policy_test)
+add_test(NAME generator_validation COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/generator_test.py)
 add_test(NAME tlm_demo_dmi COMMAND tlm_demo)
 add_test(NAME soc_boot_timed_lt COMMAND soc_sim --scenario boot --timing timed-lt)
 add_test(NAME soc_boot_functional_fast COMMAND soc_sim --scenario boot --timing functional-fast)
