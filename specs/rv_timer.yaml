@@ -1,0 +1,46 @@
+device:
+  name: RV_TIMER
+  version: 1
+  address_width: 32
+  register_width: 32
+
+registers:
+  - name: CTRL
+    offset: 0x00
+    access: RW
+    reset: 0x00000000
+
+  - name: CFG0
+    offset: 0x04
+    access: RW
+    reset: 0x00000000
+
+  - name: TIMER_V_LOWER
+    offset: 0x08
+    access: RO
+    reset: 0x00000000
+
+  - name: TIMER_V_UPPER
+    offset: 0x0C
+    access: RO
+    reset: 0x00000000
+
+  - name: COMPARE_LOWER
+    offset: 0x10
+    access: RW
+    reset: 0x00000000
+
+  - name: COMPARE_UPPER
+    offset: 0x14
+    access: RW
+    reset: 0x00000000
+
+  - name: INTR_STATE
+    offset: 0x18
+    access: W1C
+    reset: 0x00000000
+
+  - name: INTR_ENABLE
+    offset: 0x1C
+    access: RW
+    reset: 0x00000000

@@ -1,0 +1,1276 @@
+#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+
+#include <cstdint>
+#include <iostream>
+#include <string>
+
+#include "../model/memory/simple_memory.h"
+#include "../model/memory/simple_rom.h"
+#include "../model/interconnect/simple_interconnect.h"
+#include "../model/peripherals/uart.h"
+#include "../model/peripherals/gpio.h"
+#include "../model/peripherals/rv_timer.h"
+#include "../model/peripherals/spi_device.h"
+#include "../model/irq/irq_controller.h"
+
+class SocSim : public sc_core::sc_module {
+public:
+    tlm_utils::simple_initiator_socket<SocSim> socket;
+
+    sc_core::sc_signal<bool> timer_irq;
+    sc_core::sc_signal<bool> spi_irq;
+    sc_core::sc_signal<bool> gpio_irq;
+    sc_core::sc_signal<bool> uart_irq;
+    sc_core::sc_signal<bool> cpu_irq;
+
+    SimpleMemory memory;
+    SimpleRom rom;
+    Uart uart;
+    Gpio gpio;
+    RvTimer timer;
+    SpiDevice spi;
+    IrqController irq;
+    SimpleInterconnect bus;
+
+    bool failed = false;
+
+    SocSim(
+        sc_core::sc_module_name name,
+        bool functional_fast)
+        : sc_core::sc_module(name),
+          socket("socket"),
+          timer_irq("timer_irq"),
+          spi_irq("spi_irq"),
+          gpio_irq("gpio_irq"),
+          uart_irq("uart_irq"),
+          cpu_irq("cpu_irq"),
+          memory("memory"),
+          rom("rom"),
+          uart("uart"),
+          gpio("gpio"),
+          timer("timer"),
+          spi("spi"),
+          irq("irq"),
+          bus("bus"),
+          functional_fast_(functional_fast) {
+
+        socket.bind(bus.target_socket);
+
+        bus.rom_socket.bind(rom.socket);
+        bus.memory_socket.bind(memory.socket);
+        bus.uart_socket.bind(uart.socket);
+        bus.gpio_socket.bind(gpio.socket);
+        bus.timer_socket.bind(timer.socket);
+        bus.spi_socket.bind(spi.socket);
+        bus.irq_socket.bind(irq.socket);
+
+        timer.irq(timer_irq);
+        spi.irq(spi_irq);
+        gpio.irq(gpio_irq);
+        uart.irq(uart_irq);
+
+        irq.timer_irq(timer_irq);
+        irq.spi_irq(spi_irq);
+        irq.gpio_irq(gpio_irq);
+        irq.uart_irq(uart_irq);
+        irq.cpu_irq(cpu_irq);
+
+        SC_THREAD(run);
+    }
+
+private:
+    bool functional_fast_;
+
+    bool write32(
+        uint64_t address,
+        uint32_t value) {
+
+        tlm::tlm_generic_payload trans;
+
+        sc_core::sc_time delay =
+            sc_core::SC_ZERO_TIME;
+
+        trans.set_command(
+            tlm::TLM_WRITE_COMMAND
+        );
+
+        trans.set_address(address);
+
+        trans.set_data_ptr(
+            reinterpret_cast<unsigned char*>(&value)
+        );
+
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+
+        socket->b_transport(
+            trans,
+            delay
+        );
+
+        if (functional_fast_) {
+            wait(sc_core::SC_ZERO_TIME);
+            wait(sc_core::SC_ZERO_TIME);
+        }
+        else {
+            wait(delay);
+        }
+
+        return trans.get_response_status() ==
+               tlm::TLM_OK_RESPONSE;
+    }
+
+    bool read32(
+        uint64_t address,
+        uint32_t& value) {
+
+        value = 0;
+
+        tlm::tlm_generic_payload trans;
+
+        sc_core::sc_time delay =
+            sc_core::SC_ZERO_TIME;
+
+        trans.set_command(
+            tlm::TLM_READ_COMMAND
+        );
+
+        trans.set_address(address);
+
+        trans.set_data_ptr(
+            reinterpret_cast<unsigned char*>(&value)
+        );
+
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+
+        socket->b_transport(
+            trans,
+            delay
+        );
+
+        if (functional_fast_) {
+            wait(sc_core::SC_ZERO_TIME);
+            wait(sc_core::SC_ZERO_TIME);
+        }
+        else {
+            wait(delay);
+        }
+
+        return trans.get_response_status() ==
+               tlm::TLM_OK_RESPONSE;
+    }
+
+    void uart_print(
+        const std::string& text) {
+
+        for (char value : text) {
+
+            write32(
+                0x4000000C,
+                static_cast<uint32_t>(
+                    static_cast<unsigned char>(value)
+                )
+            );
+        }
+    }
+
+    void fail(
+        const std::string& message) {
+
+        failed = true;
+
+        std::cout
+            << "FAIL: "
+            << message
+            << "\n";
+    }
+
+    bool boot_scenario() {
+
+        std::cout
+            << "\n=== SOC BOOT SCENARIO ===\n";
+
+        uart_print(
+            "Virtual RISC-V SoC boot\n"
+        );
+
+        uint32_t rom_value0 = 0;
+        uint32_t rom_value1 = 0;
+
+        if (!read32(
+                0x00000000,
+                rom_value0)) {
+
+            fail("ROM table entry 0 read failed");
+            return false;
+        }
+
+        if (!read32(
+                0x00000004,
+                rom_value1)) {
+
+            fail("ROM table entry 1 read failed");
+            return false;
+        }
+
+        if (!write32(
+                0x10000000,
+                rom_value0)) {
+
+            fail("SRAM table entry 0 write failed");
+            return false;
+        }
+
+        if (!write32(
+                0x10000004,
+                rom_value1)) {
+
+            fail("SRAM table entry 1 write failed");
+            return false;
+        }
+
+        uint32_t ram_value0 = 0;
+        uint32_t ram_value1 = 0;
+
+        if (!read32(
+                0x10000000,
+                ram_value0)) {
+
+            fail("SRAM table entry 0 read failed");
+            return false;
+        }
+
+        if (!read32(
+                0x10000004,
+                ram_value1)) {
+
+            fail("SRAM table entry 1 read failed");
+            return false;
+        }
+
+        std::cout
+            << "ROM[0] -> SRAM[0]: 0x"
+            << std::hex
+            << rom_value0
+            << " -> 0x"
+            << ram_value0
+            << "\n";
+
+        std::cout
+            << "ROM[4] -> SRAM[4]: 0x"
+            << rom_value1
+            << " -> 0x"
+            << ram_value1
+            << std::dec
+            << "\n";
+
+        if (ram_value0 != rom_value0 ||
+            ram_value1 != rom_value1) {
+
+            fail("ROM to SRAM table copy mismatch");
+            return false;
+        }
+
+        uart_print(
+            "ROM -> SRAM copy OK\n"
+        );
+
+        std::cout
+            << "\nBOOT SCENARIO: PASS\n";
+
+        return true;
+    }
+
+    bool gpio_output_scenario() {
+
+        std::cout
+            << "\n=== GPIO OUTPUT SCENARIO ===\n";
+
+        if (!write32(
+                0x40010010,
+                0x0000000F)) {
+
+            fail("GPIO output-enable configuration failed");
+            return false;
+        }
+
+        uint32_t oe = 0;
+
+        if (!read32(
+                0x40010010,
+                oe)) {
+
+            fail("GPIO output-enable read failed");
+            return false;
+        }
+
+        if (oe != 0x0000000F) {
+
+            fail("GPIO output-enable value mismatch");
+            return false;
+        }
+
+        if (!write32(
+                0x40010004,
+                0x00000001)) {
+
+            fail("GPIO direct output write failed");
+            return false;
+        }
+
+        uint32_t output = 0;
+
+        if (!read32(
+                0x40010004,
+                output)) {
+
+            fail("GPIO direct output read failed");
+            return false;
+        }
+
+        if (output != 0x00000001) {
+
+            fail("GPIO direct output mismatch");
+            return false;
+        }
+
+        if (!write32(
+                0x40010008,
+                0x00060004)) {
+
+            fail("GPIO masked lower write failed");
+            return false;
+        }
+
+        if (!read32(
+                0x40010004,
+                output)) {
+
+            fail("GPIO output read after masked write failed");
+            return false;
+        }
+
+        if (output != 0x00000005) {
+
+            fail("GPIO masked lower write mismatch");
+            return false;
+        }
+
+        if (!write32(
+                0x4001000C,
+                0x00010001)) {
+
+            fail("GPIO masked upper write failed");
+            return false;
+        }
+
+        if (!read32(
+                0x40010004,
+                output)) {
+
+            fail("GPIO output read after upper masked write failed");
+            return false;
+        }
+
+        if (output != 0x00010005) {
+
+            fail("GPIO masked upper write mismatch");
+            return false;
+        }
+
+        std::cout
+            << "GPIO direct output: 0x"
+            << std::hex
+            << 0x00000001
+            << "\n";
+
+        std::cout
+            << "GPIO masked output: 0x"
+            << output
+            << std::dec
+            << "\n";
+
+        std::cout
+            << "GPIO output-enable + direct/masked writes: PASS\n";
+
+        return true;
+    }
+
+    bool invalid_transaction_scenario() {
+
+        std::cout
+            << "\n=== INVALID TRANSACTION SCENARIO ===\n";
+
+        uint32_t value = 0;
+
+        bool result = read32(
+            0x50000000,
+            value
+        );
+
+        if (result) {
+
+            fail("unmapped transaction unexpectedly succeeded");
+            return false;
+        }
+
+        std::cout
+            << "Unmapped address rejected: PASS\n";
+
+        return true;
+    }
+
+    bool uart_irq_scenario() {
+
+        std::cout
+            << "\n=== UART IRQ SCENARIO ===\n";
+
+        if (!write32(
+                0x40000000,
+                1)) {
+
+            fail("UART TX enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4000001C,
+                1)) {
+
+            fail("UART interrupt enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40040004,
+                8)) {
+
+            fail("UART IRQ controller enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4000000C,
+                'A')) {
+
+            fail("UART TX failed");
+            return false;
+        }
+
+        if (!cpu_irq.read()) {
+
+            fail("UART did not assert CPU IRQ");
+            return false;
+        }
+
+        uint32_t claim = 0;
+
+        if (!read32(
+                0x40040008,
+                claim)) {
+
+            fail("UART IRQ claim failed");
+            return false;
+        }
+
+        if (claim != 8) {
+
+            fail("wrong UART IRQ claim value");
+            return false;
+        }
+
+        if (!write32(
+                0x40000018,
+                1)) {
+
+            fail("UART interrupt clear failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4004000C,
+                claim)) {
+
+            fail("UART IRQ complete failed");
+            return false;
+        }
+
+        if (cpu_irq.read()) {
+
+            fail("UART CPU IRQ remained asserted");
+            return false;
+        }
+
+        std::cout
+            << "UART TX -> IRQ -> claim -> clear -> complete: PASS\n";
+
+        return true;
+    }
+
+    bool gpio_irq_scenario() {
+
+        std::cout
+            << "\n=== GPIO IRQ SCENARIO ===\n";
+
+        if (!write32(
+                0x40010024,
+                1)) {
+
+            fail("GPIO rise configuration failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40010020,
+                1)) {
+
+            fail("GPIO interrupt enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40040004,
+                4)) {
+
+            fail("GPIO IRQ controller enable failed");
+            return false;
+        }
+
+        gpio.set_input(0);
+        wait(sc_core::SC_ZERO_TIME);
+
+        gpio.set_input(1);
+        wait(sc_core::SC_ZERO_TIME);
+
+        uint32_t state = 0;
+
+        if (!read32(
+                0x4001001C,
+                state)) {
+
+            fail("GPIO interrupt state read failed");
+            return false;
+        }
+
+        if ((state & 1) == 0) {
+
+            fail("GPIO rising edge did not set interrupt");
+            return false;
+        }
+
+        if (!cpu_irq.read()) {
+
+            fail("GPIO did not assert CPU IRQ");
+            return false;
+        }
+
+        uint32_t claim = 0;
+
+        if (!read32(
+                0x40040008,
+                claim)) {
+
+            fail("GPIO IRQ claim failed");
+            return false;
+        }
+
+        if (claim != 4) {
+
+            fail("wrong GPIO IRQ claim value");
+            return false;
+        }
+
+        if (cpu_irq.read()) {
+
+            fail("GPIO CPU IRQ remained asserted");
+            return false;
+        }
+
+        if (!write32(
+                0x4004000C,
+                claim)) {
+
+            fail("GPIO IRQ complete failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4001001C,
+                1)) {
+
+            fail("GPIO interrupt clear failed");
+            return false;
+        }
+
+        std::cout
+            << "GPIO rising edge -> IRQ -> claim -> complete: PASS\n";
+
+        return true;
+    }
+
+    bool timer_scenario() {
+
+        std::cout
+            << "\n=== TIMER IRQ SCENARIO ===\n";
+
+        if (!write32(
+                0x40020004,
+                1)) {
+
+            fail("timer configuration failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40020008,
+                0)) {
+
+            fail("timer lower reset failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4002000C,
+                0)) {
+
+            fail("timer upper reset failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40020010,
+                5)) {
+
+            fail("timer compare lower failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40020014,
+                0)) {
+
+            fail("timer compare upper failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4002001C,
+                1)) {
+
+            fail("timer interrupt enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40020000,
+                1)) {
+
+            fail("timer start failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40040004,
+                1)) {
+
+            fail("timer IRQ controller enable failed");
+            return false;
+        }
+
+        wait(
+            60,
+            sc_core::SC_NS
+        );
+
+        uint32_t timer_low = 0;
+
+        if (!read32(
+                0x40020008,
+                timer_low)) {
+
+            fail("timer value read failed");
+            return false;
+        }
+
+        std::cout
+            << "Timer value after simulated time: "
+            << timer_low
+            << "\n";
+
+        uint32_t intr_state = 0;
+
+        if (!read32(
+                0x40020018,
+                intr_state)) {
+
+            fail("timer interrupt state read failed");
+            return false;
+        }
+
+        if ((intr_state & 1) == 0) {
+
+            fail("timer compare did not set interrupt");
+            return false;
+        }
+
+        if (!cpu_irq.read()) {
+
+            fail("timer did not assert CPU IRQ");
+            return false;
+        }
+
+        uint32_t claim = 0;
+
+        if (!read32(
+                0x40040008,
+                claim)) {
+
+            fail("timer IRQ claim failed");
+            return false;
+        }
+
+        if (claim != 1) {
+
+            fail("wrong timer IRQ claim value");
+            return false;
+        }
+
+        if (cpu_irq.read()) {
+
+            fail("timer CPU IRQ remained asserted");
+            return false;
+        }
+
+        if (!write32(
+                0x40020018,
+                1)) {
+
+            fail("timer interrupt clear failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4004000C,
+                claim)) {
+
+            fail("timer IRQ complete failed");
+            return false;
+        }
+
+        std::cout
+            << "Timer compare -> IRQ -> claim -> clear -> complete: PASS\n";
+
+        return true;
+    }
+
+    bool spi_scenario() {
+
+        std::cout
+            << "\n=== SPI SCENARIO ===\n";
+
+        if (!write32(
+                0x40030000,
+                1)) {
+
+            fail("SPI enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40030004,
+                0)) {
+
+            fail("SPI configuration failed");
+            return false;
+        }
+
+        if (!write32(
+                0x40040004,
+                2)) {
+
+            fail("SPI IRQ controller enable failed");
+            return false;
+        }
+
+        if (!write32(
+                0x4003000C,
+                0x55)) {
+
+            fail("SPI TX failed");
+            return false;
+        }
+
+        if (!cpu_irq.read()) {
+
+            fail("SPI did not assert CPU IRQ");
+            return false;
+        }
+
+        uint32_t status = 0;
+
+        if (!read32(
+                0x40030008,
+                status)) {
+
+            fail("SPI status read failed");
+            return false;
+        }
+
+        if ((status & (1u << 1)) == 0) {
+
+            fail("SPI RX FIFO is empty");
+            return false;
+        }
+
+        uint32_t rx = 0;
+
+        if (!read32(
+                0x40030010,
+                rx)) {
+
+            fail("SPI RX failed");
+            return false;
+        }
+
+        if ((rx & 0xff) != 0xAA) {
+
+            fail("unexpected SPI response");
+            return false;
+        }
+
+        uint32_t claim = 0;
+
+        if (!read32(
+                0x40040008,
+                claim)) {
+
+            fail("SPI IRQ claim failed");
+            return false;
+        }
+
+        if (claim != 2) {
+
+            fail("wrong SPI IRQ claim value");
+            return false;
+        }
+
+        if (!write32(
+                0x4004000C,
+                claim)) {
+
+            fail("SPI IRQ complete failed");
+            return false;
+        }
+
+        std::cout
+            << "SPI TX 0x55 -> RX 0xAA -> IRQ -> claim -> complete: PASS\n";
+
+        return true;
+    }
+
+    void reset_soc() {
+
+        memory.reset();
+        uart.reset();
+        gpio.reset();
+        timer.reset();
+        spi.reset();
+        irq.reset();
+
+        wait(sc_core::SC_ZERO_TIME);
+        wait(sc_core::SC_ZERO_TIME);
+    }
+
+    bool reset_scenario() {
+
+        std::cout
+            << "\n=== RESET SCENARIO ===\n";
+
+        if (!write32(
+                0x10000000,
+                0xDEADBEEF)) {
+
+            fail("failed to create SRAM reset state");
+            return false;
+        }
+
+        if (!write32(
+                0x40010010,
+                0x0000000F)) {
+
+            fail("failed to create GPIO reset state");
+            return false;
+        }
+
+        if (!write32(
+                0x40010004,
+                0x00000055)) {
+
+            fail("failed to create GPIO output state");
+            return false;
+        }
+
+        if (!write32(
+                0x40000000,
+                1)) {
+
+            fail("failed to create UART reset state");
+            return false;
+        }
+
+        if (!write32(
+                0x40030000,
+                1)) {
+
+            fail("failed to create SPI reset state");
+            return false;
+        }
+
+        if (!write32(
+                0x40030004,
+                1)) {
+
+            fail("failed to create SPI config state");
+            return false;
+        }
+
+        if (!write32(
+                0x40020004,
+                1)) {
+
+            fail("failed to create timer reset state");
+            return false;
+        }
+
+        if (!write32(
+                0x40020010,
+                100)) {
+
+            fail("failed to create timer compare state");
+            return false;
+        }
+
+        if (!write32(
+                0x4002001C,
+                1)) {
+
+            fail("failed to create timer interrupt state");
+            return false;
+        }
+
+        if (!write32(
+                0x40020000,
+                1)) {
+
+            fail("failed to start timer");
+            return false;
+        }
+
+        if (!write32(
+                0x40040004,
+                0x0F)) {
+
+            fail("failed to create IRQ controller state");
+            return false;
+        }
+
+        wait(
+            100,
+            sc_core::SC_NS
+        );
+
+        sc_core::sc_time reset_time =
+            sc_core::sc_time_stamp();
+
+        reset_soc();
+
+        uint32_t value = 0;
+
+        if (!read32(
+                0x10000000,
+                value) ||
+            value != 0) {
+
+            fail("SRAM was not reset to zero");
+            return false;
+        }
+
+        if (!read32(
+                0x40010004,
+                value) ||
+            value != 0) {
+
+            fail("GPIO output was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40010010,
+                value) ||
+            value != 0) {
+
+            fail("GPIO output-enable was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40000000,
+                value) ||
+            value != 0) {
+
+            fail("UART control was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40000018,
+                value) ||
+            value != 0) {
+
+            fail("UART interrupt state was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40030000,
+                value) ||
+            value != 0) {
+
+            fail("SPI control was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40030004,
+                value) ||
+            value != 0) {
+
+            fail("SPI configuration was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40030008,
+                value) ||
+            value != 0x5) {
+
+            fail("SPI FIFO status was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40020000,
+                value) ||
+            value != 0) {
+
+            fail("timer control was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40020004,
+                value) ||
+            value != 0) {
+
+            fail("timer configuration was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40020010,
+                value) ||
+            value != 0) {
+
+            fail("timer compare was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40020018,
+                value) ||
+            value != 0) {
+
+            fail("timer interrupt state was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40040000,
+                value) ||
+            value != 0) {
+
+            fail("IRQ pending state was not reset");
+            return false;
+        }
+
+        if (!read32(
+                0x40040004,
+                value) ||
+            value != 0) {
+
+            fail("IRQ enable state was not reset");
+            return false;
+        }
+
+        if (timer_irq.read() ||
+            spi_irq.read() ||
+            gpio_irq.read() ||
+            uart_irq.read() ||
+            cpu_irq.read()) {
+
+            fail("IRQ signal remained asserted after reset");
+            return false;
+        }
+
+        // Reset was performed after simulation time was already non-zero.
+        if (reset_time <=
+            sc_core::SC_ZERO_TIME) {
+
+            fail("reset was attempted before simulated time advanced");
+            return false;
+        }
+
+        std::cout
+            << "Reset after simulated time: PASS\n";
+
+        std::cout
+            << "SRAM, GPIO, UART, Timer, SPI and IRQ state cleared\n";
+
+        std::cout
+            << "RESET SCENARIO: PASS\n";
+
+        return true;
+    }
+
+    void run() {
+
+        bool ok = boot_scenario();
+
+        if (ok) {
+            ok = gpio_output_scenario();
+        }
+
+        if (ok) {
+            ok = invalid_transaction_scenario();
+        }
+
+        if (ok) {
+            ok = uart_irq_scenario();
+        }
+
+        if (ok) {
+            ok = gpio_irq_scenario();
+        }
+
+        if (ok) {
+            ok = timer_scenario();
+        }
+
+        if (ok) {
+            ok = spi_scenario();
+        }
+
+        if (ok) {
+            ok = reset_scenario();
+        }
+
+        if (ok) {
+            std::cout
+                << "\n=== FIRMWARE SCENARIO ===\n"
+                << "All required firmware checks: PASS\n";
+        }
+        else {
+            std::cout
+                << "\n=== FIRMWARE SCENARIO ===\n"
+                << "FAIL\n";
+        }
+
+        std::cout
+            << "\nSimulation time: "
+            << sc_core::sc_time_stamp()
+            << "\n";
+
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(
+    int argc,
+    char* argv[]) {
+
+    std::string scenario = "boot";
+    std::string timing = "timed-lt";
+
+    for (int i = 1; i < argc; ++i) {
+
+        std::string arg = argv[i];
+
+        if (arg == "--scenario" &&
+            i + 1 < argc) {
+
+            scenario = argv[++i];
+
+        }
+        else if (arg == "--timing" &&
+                 i + 1 < argc) {
+
+            timing = argv[++i];
+        }
+    }
+
+    if (scenario != "boot") {
+
+        std::cout
+            << "Unsupported scenario: "
+            << scenario
+            << "\n";
+
+        return 1;
+    }
+
+    bool functional_fast = false;
+
+    if (timing == "functional-fast") {
+
+        functional_fast = true;
+
+    }
+    else if (timing == "timed-lt") {
+
+        functional_fast = false;
+
+    }
+    else {
+
+        std::cout
+            << "Unsupported timing mode: "
+            << timing
+            << "\n";
+
+        return 1;
+    }
+
+    std::cout
+        << "Scenario: "
+        << scenario
+        << "\n";
+
+    std::cout
+        << "Timing: "
+        << timing
+        << "\n";
+
+    SocSim soc(
+        "soc",
+        functional_fast
+    );
+
+    sc_core::sc_start();
+
+    return soc.failed ? 1 : 0;
+}

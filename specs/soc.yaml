@@ -1,0 +1,39 @@
+soc:
+  name: virtual_riscv_soc
+  version: 1
+
+memory_map:
+  - name: ROM
+    base: 0x00000000
+    size: 0x00010000
+    type: rom
+
+  - name: SRAM
+    base: 0x10000000
+    size: 0x00100000
+    type: ram
+
+  - name: UART0
+    base: 0x40000000
+    size: 0x00001000
+    type: peripheral
+
+  - name: GPIO
+    base: 0x40010000
+    size: 0x00001000
+    type: peripheral
+
+  - name: RV_TIMER
+    base: 0x40020000
+    size: 0x00001000
+    type: peripheral
+
+  - name: SPI_DEVICE
+    base: 0x40030000
+    size: 0x00001000
+    type: peripheral
+
+  - name: IRQ
+    base: 0x40040000
+    size: 0x00010000
+    type: peripheral

@@ -1,0 +1,3 @@
+build/
+trace_output.txt
+.venv/

@@ -1,0 +1,61 @@
+device:
+  name: GPIO
+  version: 1
+  address_width: 32
+  register_width: 32
+
+registers:
+  - name: DATA_IN
+    offset: 0x00
+    access: RO
+    reset: 0x00000000
+
+  - name: DIRECT_OUT
+    offset: 0x04
+    access: RW
+    reset: 0x00000000
+
+  - name: MASKED_OUT_LOWER
+    offset: 0x08
+    access: WO
+    reset: 0x00000000
+
+  - name: MASKED_OUT_UPPER
+    offset: 0x0C
+    access: WO
+    reset: 0x00000000
+
+  - name: DIRECT_OE
+    offset: 0x10
+    access: RW
+    reset: 0x00000000
+
+  - name: MASKED_OE_LOWER
+    offset: 0x14
+    access: WO
+    reset: 0x00000000
+
+  - name: MASKED_OE_UPPER
+    offset: 0x18
+    access: WO
+    reset: 0x00000000
+
+  - name: INTR_STATE
+    offset: 0x1C
+    access: W1C
+    reset: 0x00000000
+
+  - name: INTR_ENABLE
+    offset: 0x20
+    access: RW
+    reset: 0x00000000
+
+  - name: INTR_RISE
+    offset: 0x24
+    access: RW
+    reset: 0x00000000
+
+  - name: INTR_FALL
+    offset: 0x28
+    access: RW
+    reset: 0x00000000
