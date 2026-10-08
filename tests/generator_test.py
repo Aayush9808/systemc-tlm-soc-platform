@@ -1,14 +1,18 @@
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
 import yaml
 
-import generator.generate as generate
-
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_SPECS = ROOT / "specs"
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+import generator.generate as generate
 
 
 def expect_failure(name, mutate):

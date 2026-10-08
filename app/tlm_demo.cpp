@@ -21,6 +21,8 @@ public:
 
     sc_core::sc_signal<bool> timer_irq;
     sc_core::sc_signal<bool> spi_irq;
+    sc_core::sc_signal<bool> gpio_irq;
+    sc_core::sc_signal<bool> uart_irq;
     sc_core::sc_signal<bool> cpu_irq;
 
     SimpleMemory memory;
@@ -56,9 +58,13 @@ public:
 
         timer.irq(timer_irq);
         spi.irq(spi_irq);
+        gpio.irq(gpio_irq);
+        uart.irq(uart_irq);
 
         irq.timer_irq(timer_irq);
         irq.spi_irq(spi_irq);
+        irq.gpio_irq(gpio_irq);
+        irq.uart_irq(uart_irq);
         irq.cpu_irq(cpu_irq);
 
         SC_THREAD(run);
@@ -128,8 +134,6 @@ private:
         uint32_t value = 0xAABBCCDD;
 
         trans.set_command(tlm::TLM_READ_COMMAND);
-
-        // Request DMI for the SRAM address
         trans.set_address(0x10000000);
 
         trans.set_data_ptr(
