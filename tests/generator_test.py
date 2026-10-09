@@ -174,6 +174,10 @@ def check_firmware_uses_generated_bases():
         "generated::spi_device::STATUS_OFFSET",
         "generated::spi_device::TX_OFFSET",
         "generated::spi_device::RX_OFFSET",
+        "generated::irq::PENDING_OFFSET",
+        "generated::irq::ENABLE_OFFSET",
+        "generated::irq::CLAIM_OFFSET",
+        "generated::irq::COMPLETE_OFFSET",
     ]
     missing_symbols = [name for name in register_symbols if name not in source]
     if missing_symbols:
@@ -211,7 +215,20 @@ def check_models_use_generated_register_offsets():
             if reference not in source:
                 raise SystemExit(f"FAIL: {filename} is missing generated register reference {reference}")
 
+    irq_source = (ROOT / "model" / "irq" / "irq_controller.h").read_text()
+    for symbol in [
+        "generated::irq::PENDING_OFFSET",
+        "generated::irq::ENABLE_OFFSET",
+        "generated::irq::CLAIM_OFFSET",
+        "generated::irq::COMPLETE_OFFSET",
+    ]:
+        if symbol not in irq_source:
+            raise SystemExit(
+                f"FAIL: IRQ controller is missing generated register reference {symbol}"
+            )
+
     print("[PASS] peripheral models use generated register offsets")
+    print("[PASS] IRQ controller uses generated register offsets")
 
 
 def main():
