@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 import tempfile
 import yaml
@@ -9,6 +10,11 @@ SPEC_DIR = ROOT / "specs"
 OUT_DIR = ROOT / "generated"
 
 VALID_ACCESS = {"RO", "RW", "WO", "W1C"}
+IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_cpp_identifier(value):
+    return isinstance(value, str) and IDENTIFIER_PATTERN.fullmatch(value) is not None
 
 
 def load_yaml(path):
@@ -68,8 +74,13 @@ def validate_soc(data, path):
         base = numeric_value(entry["base"], f"{prefix}.base")
         size = numeric_value(entry["size"], f"{prefix}.size")
 
-        if not name:
-            raise ValueError(f"{prefix}: name cannot be empty")
+        if not is_cpp_identifier(name):
+            raise ValueError(
+                f"{prefix}: name must be a valid C++ identifier"
+            )
+
+        if not isinstance(entry["type"], str) or not entry["type"].strip():
+            raise ValueError(f"{prefix}: type must be a non-empty string")
 
         if name in names:
             raise ValueError(
@@ -128,6 +139,11 @@ def validate_device(data, path):
             f"{path}: device missing 'name'"
         )
 
+    if not is_cpp_identifier(device["name"]):
+        raise ValueError(
+            f"{path}: device name must be a valid C++ identifier"
+        )
+
     registers = data["registers"]
 
     if not isinstance(registers, list):
@@ -159,9 +175,9 @@ def validate_device(data, path):
         )
         access = reg["access"]
 
-        if not name:
+        if not is_cpp_identifier(name):
             raise ValueError(
-                f"{prefix}: name cannot be empty"
+                f"{prefix}: name must be a valid C++ identifier"
             )
 
         if name in names:
