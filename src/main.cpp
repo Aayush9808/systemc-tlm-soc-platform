@@ -510,6 +510,14 @@ private:
             return false;
         }
 
+        uint32_t uart_write_only_value = 0;
+        if (read32(
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
+                uart_write_only_value)) {
+            fail("UART write-only WDATA register unexpectedly allowed reads");
+            return false;
+        }
+
         if (!write32(
                 (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
                 'A')) {
