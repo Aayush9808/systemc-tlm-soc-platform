@@ -4,7 +4,7 @@ Generated from the device schema.
 
 ## Register checks
 
-- `CTRL` offset=`0x00000000` access=`RW` reset=`0x00000000` mask=`0xFFFFFFFF`
+- `CTRL` offset=`0x00000000` access=`RW` reset=`0x00000000` mask=`0x00000003`
 - `STATUS` offset=`0x00000004` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `RDATA` offset=`0x00000008` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `WDATA` offset=`0x0000000C` access=`WO` reset=`0x00000000` mask=`0xFFFFFFFF`
