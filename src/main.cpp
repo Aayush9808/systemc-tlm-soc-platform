@@ -7,6 +7,10 @@
 #include <string>
 
 #include "../generated/include/soc_memory_map.h"
+#include "../generated/include/uart0.h"
+#include "../generated/include/gpio.h"
+#include "../generated/include/rv_timer.h"
+#include "../generated/include/spi_device.h"
 
 #include "../model/memory/simple_memory.h"
 #include "../model/memory/simple_rom.h"
@@ -181,7 +185,7 @@ private:
         for (char value : text) {
 
             write32(
-                (generated::UART0_BASE + 0xCULL),
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
                 static_cast<uint32_t>(
                     static_cast<unsigned char>(value)
                 )
@@ -302,7 +306,7 @@ private:
             << "\n=== GPIO OUTPUT SCENARIO ===\n";
 
         if (!write32(
-                (generated::GPIO_BASE + 0x10ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 0x0000000F)) {
 
             fail("GPIO output-enable configuration failed");
@@ -312,7 +316,7 @@ private:
         uint32_t oe = 0;
 
         if (!read32(
-                (generated::GPIO_BASE + 0x10ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 oe)) {
 
             fail("GPIO output-enable read failed");
@@ -326,7 +330,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 0x00000001)) {
 
             fail("GPIO direct output write failed");
@@ -336,7 +340,7 @@ private:
         uint32_t output = 0;
 
         if (!read32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO direct output read failed");
@@ -350,7 +354,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x8ULL),
+                (generated::GPIO_BASE + generated::gpio::MASKED_OUT_LOWER_OFFSET),
                 0x00060004)) {
 
             fail("GPIO masked lower write failed");
@@ -358,7 +362,7 @@ private:
         }
 
         if (!read32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO output read after masked write failed");
@@ -372,7 +376,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0xCULL),
+                (generated::GPIO_BASE + generated::gpio::MASKED_OUT_UPPER_OFFSET),
                 0x00010001)) {
 
             fail("GPIO masked upper write failed");
@@ -380,7 +384,7 @@ private:
         }
 
         if (!read32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO output read after upper masked write failed");
@@ -449,7 +453,7 @@ private:
         }
 
         if (!write32(
-                (generated::UART0_BASE + 0x1CULL),
+                (generated::UART0_BASE + generated::uart0::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("UART interrupt enable failed");
@@ -465,7 +469,7 @@ private:
         }
 
         if (!write32(
-                (generated::UART0_BASE + 0xCULL),
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
                 'A')) {
 
             fail("UART TX failed");
@@ -495,7 +499,7 @@ private:
         }
 
         if (!write32(
-                (generated::UART0_BASE + 0x18ULL),
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
                 1)) {
 
             fail("UART interrupt clear failed");
@@ -528,7 +532,7 @@ private:
             << "\n=== GPIO IRQ SCENARIO ===\n";
 
         if (!write32(
-                (generated::GPIO_BASE + 0x24ULL),
+                (generated::GPIO_BASE + generated::gpio::INTR_RISE_OFFSET),
                 1)) {
 
             fail("GPIO rise configuration failed");
@@ -536,7 +540,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x20ULL),
+                (generated::GPIO_BASE + generated::gpio::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("GPIO interrupt enable failed");
@@ -560,7 +564,7 @@ private:
         uint32_t state = 0;
 
         if (!read32(
-                (generated::GPIO_BASE + 0x1CULL),
+                (generated::GPIO_BASE + generated::gpio::INTR_STATE_OFFSET),
                 state)) {
 
             fail("GPIO interrupt state read failed");
@@ -610,7 +614,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x1CULL),
+                (generated::GPIO_BASE + generated::gpio::INTR_STATE_OFFSET),
                 1)) {
 
             fail("GPIO interrupt clear failed");
@@ -629,7 +633,7 @@ private:
             << "\n=== TIMER IRQ SCENARIO ===\n";
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x4ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 1)) {
 
             fail("timer configuration failed");
@@ -637,7 +641,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x8ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
                 0)) {
 
             fail("timer lower reset failed");
@@ -645,7 +649,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0xCULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
                 0)) {
 
             fail("timer upper reset failed");
@@ -653,7 +657,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x10ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
                 5)) {
 
             fail("timer compare lower failed");
@@ -661,7 +665,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x14ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
                 0)) {
 
             fail("timer compare upper failed");
@@ -669,7 +673,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x1CULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("timer interrupt enable failed");
@@ -700,7 +704,7 @@ private:
         uint32_t timer_low = 0;
 
         if (!read32(
-                (generated::RV_TIMER_BASE + 0x8ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
                 timer_low)) {
 
             fail("timer value read failed");
@@ -715,7 +719,7 @@ private:
         uint32_t intr_state = 0;
 
         if (!read32(
-                (generated::RV_TIMER_BASE + 0x18ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 intr_state)) {
 
             fail("timer interrupt state read failed");
@@ -757,7 +761,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x18ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 1)) {
 
             fail("timer interrupt clear failed");
@@ -792,7 +796,7 @@ private:
         }
 
         if (!write32(
-                (generated::SPI_DEVICE_BASE + 0x4ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 0)) {
 
             fail("SPI configuration failed");
@@ -808,7 +812,7 @@ private:
         }
 
         if (!write32(
-                (generated::SPI_DEVICE_BASE + 0xCULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
                 0x55)) {
 
             fail("SPI TX failed");
@@ -824,7 +828,7 @@ private:
         uint32_t status = 0;
 
         if (!read32(
-                (generated::SPI_DEVICE_BASE + 0x8ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
                 status)) {
 
             fail("SPI status read failed");
@@ -840,7 +844,7 @@ private:
         uint32_t rx = 0;
 
         if (!read32(
-                (generated::SPI_DEVICE_BASE + 0x10ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::RX_OFFSET),
                 rx)) {
 
             fail("SPI RX failed");
@@ -910,7 +914,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x10ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 0x0000000F)) {
 
             fail("failed to create GPIO reset state");
@@ -918,7 +922,7 @@ private:
         }
 
         if (!write32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 0x00000055)) {
 
             fail("failed to create GPIO output state");
@@ -950,7 +954,7 @@ private:
         }
 
         if (!write32(
-                (generated::SPI_DEVICE_BASE + 0x4ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 1)) {
 
             fail("failed to create SPI config state");
@@ -958,7 +962,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x4ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 1)) {
 
             fail("failed to create timer reset state");
@@ -966,7 +970,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x10ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
                 100)) {
 
             fail("failed to create timer compare state");
@@ -974,7 +978,7 @@ private:
         }
 
         if (!write32(
-                (generated::RV_TIMER_BASE + 0x1CULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("failed to create timer interrupt state");
@@ -1019,7 +1023,7 @@ private:
         }
 
         if (!read32(
-                (generated::GPIO_BASE + 0x4ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1034,7 +1038,7 @@ private:
         }
 
         if (!read32(
-                (generated::GPIO_BASE + 0x10ULL),
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1052,7 +1056,7 @@ private:
         }
 
         if (!read32(
-                (generated::UART0_BASE + 0x18ULL),
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1070,7 +1074,7 @@ private:
         }
 
         if (!read32(
-                (generated::SPI_DEVICE_BASE + 0x4ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1079,7 +1083,7 @@ private:
         }
 
         if (!read32(
-                (generated::SPI_DEVICE_BASE + 0x8ULL),
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
                 value) ||
             value != 0x5) {
 
@@ -1097,7 +1101,7 @@ private:
         }
 
         if (!read32(
-                (generated::RV_TIMER_BASE + 0x4ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1106,7 +1110,7 @@ private:
         }
 
         if (!read32(
-                (generated::RV_TIMER_BASE + 0x10ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1115,7 +1119,7 @@ private:
         }
 
         if (!read32(
-                (generated::RV_TIMER_BASE + 0x18ULL),
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 value) ||
             value != 0) {
 
