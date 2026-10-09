@@ -452,7 +452,7 @@ private:
         if (!read32(
                 (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
                 uart_status_before) ||
-            !write32(
+            write32(
                 (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
                 0) ||
             !read32(
@@ -460,6 +460,29 @@ private:
                 uart_status_after) ||
             uart_status_before != uart_status_after) {
             fail("UART read-only STATUS register changed after write");
+            return false;
+        }
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                0xFFFFFFFFu)) {
+            fail("UART control mask write failed");
+            return false;
+        }
+
+        uint32_t uart_control = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                uart_control) ||
+            uart_control != 0x3u) {
+            fail("UART control register mask was not applied");
+            return false;
+        }
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                0)) {
+            fail("UART control reset before IRQ scenario failed");
             return false;
         }
 
