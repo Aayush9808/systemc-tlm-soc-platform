@@ -79,13 +79,13 @@ The same architectural transactions and checks are executed, but the scenario av
 
 The timer is independent of host wall-clock time. Its counter is derived from sc_time_stamp(), prescaler and step configuration. Compare interrupts are scheduled with SystemC events.
 
-A temporal-decoupling/quantum optimization is intentionally not part of the baseline. Explicit synchronization keeps the model simple and deterministic.
+A temporal-decoupling/quantum optimization is intentionally not part of the baseline. Explicit synchronization keeps the model simple and deterministic. In TLM-2.0, a quantum keeper tracks local simulated time while an initiator performs several transactions without synchronizing on every call; it synchronizes when its local time reaches the configured global quantum. That can reduce kernel scheduling overhead, but it changes when other processes observe transactions and therefore needs explicit timing/regression tests. The current scripted initiator instead waits on each `b_transport` delay annotation in timed-LT mode. Functional-fast mode skips annotated delay waits by design; it is a functional comparison mode, not a timing-equivalent optimization.
 
 ## 6. Schema-driven generation
 
 YAML is the source of truth.
 
-specs/soc.yaml defines the memory map. Device schemas define register names, offsets, reset values, masks and access types.
+specs/soc.yaml defines the memory map. Device schemas (`uart.yaml`, `gpio.yaml`, `rv_timer.yaml`, `spi_device.yaml` and `irq.yaml`) define register names, offsets, reset values, masks and access types. Firmware scenarios and peripheral register enums consume generated offset constants, so relocating a declared register updates the software-side transaction address as well as generated metadata.
 
 The generator validates:
 
@@ -102,7 +102,7 @@ The generator validates:
 
 It generates memory-map constants, register metadata, dispatch helpers, software headers, register documentation and verification artifacts.
 
-Generated code is kept separate from handwritten model behavior. Static metadata is generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten.
+Generated code is kept separate from handwritten model behavior. Static metadata and register offsets are generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten. Generated access/reset/mask metadata documents the contract, but it does not yet universally enforce every access policy or reset value inside all handwritten peripheral models.
 
 The generator also has a --check mode that generates into a temporary directory and compares the result with committed generated output, so stale generated files are detected without modifying the repository.
 
@@ -132,7 +132,7 @@ SRAM grants DMI over its memory. The interconnect translates the DMI target-loca
 
 The standalone TLM/DMI demonstration verifies that a direct DMI write is visible through a later TLM read. The benchmark also compares repeated TLM accesses with direct DMI accesses.
 
-Because the SRAM mapping is static, runtime DMI invalidation is not required by the current model. If memory remapping were introduced, standard DMI invalidation would be required.
+Because the SRAM mapping and backing storage are static for the lifetime of this simulation, runtime DMI invalidation is not required by the current model. If a target changes a granted DMI pointer, access permissions, or mapped range while the simulation is running, it must invalidate affected DMI regions with the standard TLM invalidation path so initiators do not continue using stale pointers. Any future remapping or dynamic permission changes must add an invalidation regression test.
 
 ## 10. Reset
 
@@ -150,7 +150,7 @@ Verification has three levels.
 
 TLM transaction-policy checks validate width, alignment, streaming width, byte enables, command type and bounds.
 
-The generator validates malformed schema conditions before producing output.
+The generator validates malformed schema conditions before producing output. Register offsets for UART, GPIO, RV_TIMER, SPI_DEVICE and the IRQ controller are declared in YAML and emitted as C++ constants; the scripted firmware uses those generated offsets instead of numeric register offsets.
 
 ### Integration
 
