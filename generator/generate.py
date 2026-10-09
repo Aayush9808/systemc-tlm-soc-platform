@@ -249,6 +249,7 @@ def validate_all():
         "gpio.yaml",
         "rv_timer.yaml",
         "spi_device.yaml",
+        "irq.yaml",
     ]
 
     device_data = {}
