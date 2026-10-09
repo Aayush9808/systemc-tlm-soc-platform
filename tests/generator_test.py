@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -120,6 +121,11 @@ def expect_register_relocation():
                 raise SystemExit("FAIL: UART register mask metadata was not generated")
             if "RegisterAccess::WO" not in header:
                 raise SystemExit("FAIL: UART register access metadata was not generated")
+            firmware = (ROOT / "src" / "main.cpp").read_text()
+            if "generated::uart0::WDATA_OFFSET" not in firmware:
+                raise SystemExit(
+                    "FAIL: firmware TX write does not consume generated UART WDATA offset"
+                )
             print("[PASS] UART register relocation regenerates register offsets")
             print("[PASS] register reset, mask and access metadata follow YAML")
         finally:
@@ -142,7 +148,48 @@ def check_firmware_uses_generated_bases():
             "FAIL: firmware is missing generated address constants: "
             + ", ".join(missing)
         )
-    print("[PASS] firmware references generated peripheral bases")
+
+    register_symbols = [
+        "generated::uart0::CTRL_OFFSET",
+        "generated::uart0::WDATA_OFFSET",
+        "generated::uart0::INTR_STATE_OFFSET",
+        "generated::uart0::INTR_ENABLE_OFFSET",
+        "generated::gpio::DIRECT_OUT_OFFSET",
+        "generated::gpio::DIRECT_OE_OFFSET",
+        "generated::gpio::MASKED_OUT_LOWER_OFFSET",
+        "generated::gpio::MASKED_OUT_UPPER_OFFSET",
+        "generated::gpio::INTR_STATE_OFFSET",
+        "generated::gpio::INTR_ENABLE_OFFSET",
+        "generated::gpio::INTR_RISE_OFFSET",
+        "generated::rv_timer::CTRL_OFFSET",
+        "generated::rv_timer::CFG0_OFFSET",
+        "generated::rv_timer::TIMER_V_LOWER_OFFSET",
+        "generated::rv_timer::TIMER_V_UPPER_OFFSET",
+        "generated::rv_timer::COMPARE_LOWER_OFFSET",
+        "generated::rv_timer::COMPARE_UPPER_OFFSET",
+        "generated::rv_timer::INTR_STATE_OFFSET",
+        "generated::rv_timer::INTR_ENABLE_OFFSET",
+        "generated::spi_device::CONTROL_OFFSET",
+        "generated::spi_device::CFG_OFFSET",
+        "generated::spi_device::STATUS_OFFSET",
+        "generated::spi_device::TX_OFFSET",
+        "generated::spi_device::RX_OFFSET",
+    ]
+    missing_symbols = [name for name in register_symbols if name not in source]
+    if missing_symbols:
+        raise SystemExit(
+            "FAIL: firmware is missing generated register offsets: "
+            + ", ".join(missing_symbols)
+        )
+
+    # A register offset edited in YAML must flow into the actual firmware
+    # transactions, not only into a generated metadata header.
+    for base in ("UART0", "GPIO", "RV_TIMER", "SPI_DEVICE"):
+        if re.search(rf"generated::{base}_BASE\\s*\\+\\s*0x[0-9A-Fa-f]+ULL", source):
+            raise SystemExit(
+                f"FAIL: firmware still hardcodes a {base} register offset"
+            )
+    print("[PASS] firmware uses generated peripheral bases and register offsets")
 
 
 def check_models_use_generated_register_offsets():
