@@ -61,8 +61,8 @@ public:
     }
 
 private:
-    uint32_t pending = 0;
-    uint32_t enable = 0;
+    uint32_t pending = generated::irq::PENDING_RESET;
+    uint32_t enable = generated::irq::ENABLE_RESET;
     uint32_t claimed = 0;
 
     bool reset_requested = false;
@@ -79,8 +79,8 @@ private:
         if (reset_requested) {
             reset_requested = false;
 
-            pending = 0;
-            enable = 0;
+            pending = generated::irq::PENDING_RESET;
+            enable = generated::irq::ENABLE_RESET;
             claimed = 0;
 
             cpu_irq.write(false);
