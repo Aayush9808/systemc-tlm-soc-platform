@@ -185,7 +185,7 @@ def check_firmware_uses_generated_bases():
     # A register offset edited in YAML must flow into the actual firmware
     # transactions, not only into a generated metadata header.
     for base in ("UART0", "GPIO", "RV_TIMER", "SPI_DEVICE"):
-        if re.search(rf"generated::{base}_BASE\\s*\\+\\s*0x[0-9A-Fa-f]+ULL", source):
+        if re.search(rf"generated::{base}_BASE\s*\+\s*0x[0-9A-Fa-f]+ULL", source):
             raise SystemExit(
                 f"FAIL: firmware still hardcodes a {base} register offset"
             )
