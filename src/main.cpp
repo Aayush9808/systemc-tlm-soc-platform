@@ -6,6 +6,8 @@
 #include <iostream>
 #include <string>
 
+#include "../generated/include/soc_memory_map.h"
+
 #include "../model/memory/simple_memory.h"
 #include "../model/memory/simple_rom.h"
 #include "../model/interconnect/simple_interconnect.h"
@@ -171,7 +173,7 @@ private:
         for (char value : text) {
 
             write32(
-                0x4000000C,
+                (generated::UART0_BASE + 0xCULL),
                 static_cast<uint32_t>(
                     static_cast<unsigned char>(value)
                 )
@@ -203,7 +205,7 @@ private:
         uint32_t rom_value1 = 0;
 
         if (!read32(
-                0x00000000,
+                generated::ROM_BASE,
                 rom_value0)) {
 
             fail("ROM table entry 0 read failed");
@@ -211,7 +213,7 @@ private:
         }
 
         if (!read32(
-                0x00000004,
+                (generated::ROM_BASE + 0x4ULL),
                 rom_value1)) {
 
             fail("ROM table entry 1 read failed");
@@ -219,7 +221,7 @@ private:
         }
 
         if (!write32(
-                0x10000000,
+                generated::SRAM_BASE,
                 rom_value0)) {
 
             fail("SRAM table entry 0 write failed");
@@ -227,7 +229,7 @@ private:
         }
 
         if (!write32(
-                0x10000004,
+                (generated::SRAM_BASE + 0x4ULL),
                 rom_value1)) {
 
             fail("SRAM table entry 1 write failed");
@@ -238,7 +240,7 @@ private:
         uint32_t ram_value1 = 0;
 
         if (!read32(
-                0x10000000,
+                generated::SRAM_BASE,
                 ram_value0)) {
 
             fail("SRAM table entry 0 read failed");
@@ -246,7 +248,7 @@ private:
         }
 
         if (!read32(
-                0x10000004,
+                (generated::SRAM_BASE + 0x4ULL),
                 ram_value1)) {
 
             fail("SRAM table entry 1 read failed");
@@ -292,7 +294,7 @@ private:
             << "\n=== GPIO OUTPUT SCENARIO ===\n";
 
         if (!write32(
-                0x40010010,
+                (generated::GPIO_BASE + 0x10ULL),
                 0x0000000F)) {
 
             fail("GPIO output-enable configuration failed");
@@ -302,7 +304,7 @@ private:
         uint32_t oe = 0;
 
         if (!read32(
-                0x40010010,
+                (generated::GPIO_BASE + 0x10ULL),
                 oe)) {
 
             fail("GPIO output-enable read failed");
@@ -316,7 +318,7 @@ private:
         }
 
         if (!write32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 0x00000001)) {
 
             fail("GPIO direct output write failed");
@@ -326,7 +328,7 @@ private:
         uint32_t output = 0;
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 output)) {
 
             fail("GPIO direct output read failed");
@@ -340,7 +342,7 @@ private:
         }
 
         if (!write32(
-                0x40010008,
+                (generated::GPIO_BASE + 0x8ULL),
                 0x00060004)) {
 
             fail("GPIO masked lower write failed");
@@ -348,7 +350,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 output)) {
 
             fail("GPIO output read after masked write failed");
@@ -362,7 +364,7 @@ private:
         }
 
         if (!write32(
-                0x4001000C,
+                (generated::GPIO_BASE + 0xCULL),
                 0x00010001)) {
 
             fail("GPIO masked upper write failed");
@@ -370,7 +372,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 output)) {
 
             fail("GPIO output read after upper masked write failed");
@@ -431,7 +433,7 @@ private:
             << "\n=== UART IRQ SCENARIO ===\n";
 
         if (!write32(
-                0x40000000,
+                generated::UART0_BASE,
                 1)) {
 
             fail("UART TX enable failed");
@@ -439,7 +441,7 @@ private:
         }
 
         if (!write32(
-                0x4000001C,
+                (generated::UART0_BASE + 0x1CULL),
                 1)) {
 
             fail("UART interrupt enable failed");
@@ -447,7 +449,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 8)) {
 
             fail("UART IRQ controller enable failed");
@@ -455,7 +457,7 @@ private:
         }
 
         if (!write32(
-                0x4000000C,
+                (generated::UART0_BASE + 0xCULL),
                 'A')) {
 
             fail("UART TX failed");
@@ -471,7 +473,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + 0x8ULL),
                 claim)) {
 
             fail("UART IRQ claim failed");
@@ -485,7 +487,7 @@ private:
         }
 
         if (!write32(
-                0x40000018,
+                (generated::UART0_BASE + 0x18ULL),
                 1)) {
 
             fail("UART interrupt clear failed");
@@ -493,7 +495,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + 0xCULL),
                 claim)) {
 
             fail("UART IRQ complete failed");
@@ -518,7 +520,7 @@ private:
             << "\n=== GPIO IRQ SCENARIO ===\n";
 
         if (!write32(
-                0x40010024,
+                (generated::GPIO_BASE + 0x24ULL),
                 1)) {
 
             fail("GPIO rise configuration failed");
@@ -526,7 +528,7 @@ private:
         }
 
         if (!write32(
-                0x40010020,
+                (generated::GPIO_BASE + 0x20ULL),
                 1)) {
 
             fail("GPIO interrupt enable failed");
@@ -534,7 +536,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 4)) {
 
             fail("GPIO IRQ controller enable failed");
@@ -550,7 +552,7 @@ private:
         uint32_t state = 0;
 
         if (!read32(
-                0x4001001C,
+                (generated::GPIO_BASE + 0x1CULL),
                 state)) {
 
             fail("GPIO interrupt state read failed");
@@ -572,7 +574,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + 0x8ULL),
                 claim)) {
 
             fail("GPIO IRQ claim failed");
@@ -592,7 +594,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + 0xCULL),
                 claim)) {
 
             fail("GPIO IRQ complete failed");
@@ -600,7 +602,7 @@ private:
         }
 
         if (!write32(
-                0x4001001C,
+                (generated::GPIO_BASE + 0x1CULL),
                 1)) {
 
             fail("GPIO interrupt clear failed");
@@ -619,7 +621,7 @@ private:
             << "\n=== TIMER IRQ SCENARIO ===\n";
 
         if (!write32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + 0x4ULL),
                 1)) {
 
             fail("timer configuration failed");
@@ -627,7 +629,7 @@ private:
         }
 
         if (!write32(
-                0x40020008,
+                (generated::RV_TIMER_BASE + 0x8ULL),
                 0)) {
 
             fail("timer lower reset failed");
@@ -635,7 +637,7 @@ private:
         }
 
         if (!write32(
-                0x4002000C,
+                (generated::RV_TIMER_BASE + 0xCULL),
                 0)) {
 
             fail("timer upper reset failed");
@@ -643,7 +645,7 @@ private:
         }
 
         if (!write32(
-                0x40020010,
+                (generated::RV_TIMER_BASE + 0x10ULL),
                 5)) {
 
             fail("timer compare lower failed");
@@ -651,7 +653,7 @@ private:
         }
 
         if (!write32(
-                0x40020014,
+                (generated::RV_TIMER_BASE + 0x14ULL),
                 0)) {
 
             fail("timer compare upper failed");
@@ -659,7 +661,7 @@ private:
         }
 
         if (!write32(
-                0x4002001C,
+                (generated::RV_TIMER_BASE + 0x1CULL),
                 1)) {
 
             fail("timer interrupt enable failed");
@@ -667,7 +669,7 @@ private:
         }
 
         if (!write32(
-                0x40020000,
+                generated::RV_TIMER_BASE,
                 1)) {
 
             fail("timer start failed");
@@ -675,7 +677,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 1)) {
 
             fail("timer IRQ controller enable failed");
@@ -690,7 +692,7 @@ private:
         uint32_t timer_low = 0;
 
         if (!read32(
-                0x40020008,
+                (generated::RV_TIMER_BASE + 0x8ULL),
                 timer_low)) {
 
             fail("timer value read failed");
@@ -705,7 +707,7 @@ private:
         uint32_t intr_state = 0;
 
         if (!read32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + 0x18ULL),
                 intr_state)) {
 
             fail("timer interrupt state read failed");
@@ -727,7 +729,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + 0x8ULL),
                 claim)) {
 
             fail("timer IRQ claim failed");
@@ -747,7 +749,7 @@ private:
         }
 
         if (!write32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + 0x18ULL),
                 1)) {
 
             fail("timer interrupt clear failed");
@@ -755,7 +757,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + 0xCULL),
                 claim)) {
 
             fail("timer IRQ complete failed");
@@ -774,7 +776,7 @@ private:
             << "\n=== SPI SCENARIO ===\n";
 
         if (!write32(
-                0x40030000,
+                generated::SPI_DEVICE_BASE,
                 1)) {
 
             fail("SPI enable failed");
@@ -782,7 +784,7 @@ private:
         }
 
         if (!write32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + 0x4ULL),
                 0)) {
 
             fail("SPI configuration failed");
@@ -790,7 +792,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 2)) {
 
             fail("SPI IRQ controller enable failed");
@@ -798,7 +800,7 @@ private:
         }
 
         if (!write32(
-                0x4003000C,
+                (generated::SPI_DEVICE_BASE + 0xCULL),
                 0x55)) {
 
             fail("SPI TX failed");
@@ -814,7 +816,7 @@ private:
         uint32_t status = 0;
 
         if (!read32(
-                0x40030008,
+                (generated::SPI_DEVICE_BASE + 0x8ULL),
                 status)) {
 
             fail("SPI status read failed");
@@ -830,7 +832,7 @@ private:
         uint32_t rx = 0;
 
         if (!read32(
-                0x40030010,
+                (generated::SPI_DEVICE_BASE + 0x10ULL),
                 rx)) {
 
             fail("SPI RX failed");
@@ -846,7 +848,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + 0x8ULL),
                 claim)) {
 
             fail("SPI IRQ claim failed");
@@ -860,7 +862,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + 0xCULL),
                 claim)) {
 
             fail("SPI IRQ complete failed");
@@ -892,7 +894,7 @@ private:
             << "\n=== RESET SCENARIO ===\n";
 
         if (!write32(
-                0x10000000,
+                generated::SRAM_BASE,
                 0xDEADBEEF)) {
 
             fail("failed to create SRAM reset state");
@@ -900,7 +902,7 @@ private:
         }
 
         if (!write32(
-                0x40010010,
+                (generated::GPIO_BASE + 0x10ULL),
                 0x0000000F)) {
 
             fail("failed to create GPIO reset state");
@@ -908,7 +910,7 @@ private:
         }
 
         if (!write32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 0x00000055)) {
 
             fail("failed to create GPIO output state");
@@ -916,7 +918,7 @@ private:
         }
 
         if (!write32(
-                0x40000000,
+                generated::UART0_BASE,
                 1)) {
 
             fail("failed to create UART reset state");
@@ -924,7 +926,7 @@ private:
         }
 
         if (!write32(
-                0x40030000,
+                generated::SPI_DEVICE_BASE,
                 1)) {
 
             fail("failed to create SPI reset state");
@@ -932,7 +934,7 @@ private:
         }
 
         if (!write32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + 0x4ULL),
                 1)) {
 
             fail("failed to create SPI config state");
@@ -940,7 +942,7 @@ private:
         }
 
         if (!write32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + 0x4ULL),
                 1)) {
 
             fail("failed to create timer reset state");
@@ -948,7 +950,7 @@ private:
         }
 
         if (!write32(
-                0x40020010,
+                (generated::RV_TIMER_BASE + 0x10ULL),
                 100)) {
 
             fail("failed to create timer compare state");
@@ -956,7 +958,7 @@ private:
         }
 
         if (!write32(
-                0x4002001C,
+                (generated::RV_TIMER_BASE + 0x1CULL),
                 1)) {
 
             fail("failed to create timer interrupt state");
@@ -964,7 +966,7 @@ private:
         }
 
         if (!write32(
-                0x40020000,
+                generated::RV_TIMER_BASE,
                 1)) {
 
             fail("failed to start timer");
@@ -972,7 +974,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 0x0F)) {
 
             fail("failed to create IRQ controller state");
@@ -992,7 +994,7 @@ private:
         uint32_t value = 0;
 
         if (!read32(
-                0x10000000,
+                generated::SRAM_BASE,
                 value) ||
             value != 0) {
 
@@ -1001,7 +1003,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + 0x4ULL),
                 value) ||
             value != 0) {
 
@@ -1010,7 +1012,7 @@ private:
         }
 
         if (!read32(
-                0x40010010,
+                (generated::GPIO_BASE + 0x10ULL),
                 value) ||
             value != 0) {
 
@@ -1019,7 +1021,7 @@ private:
         }
 
         if (!read32(
-                0x40000000,
+                generated::UART0_BASE,
                 value) ||
             value != 0) {
 
@@ -1028,7 +1030,7 @@ private:
         }
 
         if (!read32(
-                0x40000018,
+                (generated::UART0_BASE + 0x18ULL),
                 value) ||
             value != 0) {
 
@@ -1037,7 +1039,7 @@ private:
         }
 
         if (!read32(
-                0x40030000,
+                generated::SPI_DEVICE_BASE,
                 value) ||
             value != 0) {
 
@@ -1046,7 +1048,7 @@ private:
         }
 
         if (!read32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + 0x4ULL),
                 value) ||
             value != 0) {
 
@@ -1055,7 +1057,7 @@ private:
         }
 
         if (!read32(
-                0x40030008,
+                (generated::SPI_DEVICE_BASE + 0x8ULL),
                 value) ||
             value != 0x5) {
 
@@ -1064,7 +1066,7 @@ private:
         }
 
         if (!read32(
-                0x40020000,
+                generated::RV_TIMER_BASE,
                 value) ||
             value != 0) {
 
@@ -1073,7 +1075,7 @@ private:
         }
 
         if (!read32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + 0x4ULL),
                 value) ||
             value != 0) {
 
@@ -1082,7 +1084,7 @@ private:
         }
 
         if (!read32(
-                0x40020010,
+                (generated::RV_TIMER_BASE + 0x10ULL),
                 value) ||
             value != 0) {
 
@@ -1091,7 +1093,7 @@ private:
         }
 
         if (!read32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + 0x18ULL),
                 value) ||
             value != 0) {
 
@@ -1100,7 +1102,7 @@ private:
         }
 
         if (!read32(
-                0x40040000,
+                generated::IRQ_BASE,
                 value) ||
             value != 0) {
 
@@ -1109,7 +1111,7 @@ private:
         }
 
         if (!read32(
-                0x40040004,
+                (generated::IRQ_BASE + 0x4ULL),
                 value) ||
             value != 0) {
 
