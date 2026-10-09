@@ -695,6 +695,7 @@ def generate_verification_artifact(data):
 
 def generate_all(soc_data, device_data):
     generate_soc_map(soc_data)
+    generate_register_metadata_header()
 
     for data in device_data.values():
         generate_device_header(data)
