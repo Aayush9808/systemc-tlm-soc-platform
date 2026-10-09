@@ -11,6 +11,7 @@
 #include "../generated/include/gpio.h"
 #include "../generated/include/rv_timer.h"
 #include "../generated/include/spi_device.h"
+#include "../generated/include/irq.h"
 
 #include "../model/memory/simple_memory.h"
 #include "../model/memory/simple_rom.h"
@@ -461,7 +462,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 8)) {
 
             fail("UART IRQ controller enable failed");
@@ -485,7 +486,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                (generated::IRQ_BASE + 0x8ULL),
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("UART IRQ claim failed");
@@ -507,7 +508,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0xCULL),
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("UART IRQ complete failed");
@@ -548,7 +549,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 4)) {
 
             fail("GPIO IRQ controller enable failed");
@@ -586,7 +587,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                (generated::IRQ_BASE + 0x8ULL),
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("GPIO IRQ claim failed");
@@ -606,7 +607,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0xCULL),
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("GPIO IRQ complete failed");
@@ -689,7 +690,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 1)) {
 
             fail("timer IRQ controller enable failed");
@@ -741,7 +742,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                (generated::IRQ_BASE + 0x8ULL),
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("timer IRQ claim failed");
@@ -769,7 +770,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0xCULL),
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("timer IRQ complete failed");
@@ -804,7 +805,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 2)) {
 
             fail("SPI IRQ controller enable failed");
@@ -860,7 +861,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                (generated::IRQ_BASE + 0x8ULL),
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("SPI IRQ claim failed");
@@ -874,7 +875,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0xCULL),
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("SPI IRQ complete failed");
@@ -994,7 +995,7 @@ private:
         }
 
         if (!write32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 0x0F)) {
 
             fail("failed to create IRQ controller state");
@@ -1128,7 +1129,7 @@ private:
         }
 
         if (!read32(
-                generated::IRQ_BASE,
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1137,7 +1138,7 @@ private:
         }
 
         if (!read32(
-                (generated::IRQ_BASE + 0x4ULL),
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 value) ||
             value != 0) {
 
