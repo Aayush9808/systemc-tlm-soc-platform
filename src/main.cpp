@@ -445,7 +445,7 @@ private:
             << "\n=== UART IRQ SCENARIO ===\n";
 
         if (!write32(
-                generated::UART0_BASE,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 1)) {
 
             fail("UART TX enable failed");
@@ -681,7 +681,7 @@ private:
         }
 
         if (!write32(
-                generated::RV_TIMER_BASE,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 1)) {
 
             fail("timer start failed");
@@ -788,7 +788,7 @@ private:
             << "\n=== SPI SCENARIO ===\n";
 
         if (!write32(
-                generated::SPI_DEVICE_BASE,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 1)) {
 
             fail("SPI enable failed");
@@ -938,7 +938,7 @@ private:
             gpio_output_notifications;
 
         if (!write32(
-                generated::UART0_BASE,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 1)) {
 
             fail("failed to create UART reset state");
@@ -946,7 +946,7 @@ private:
         }
 
         if (!write32(
-                generated::SPI_DEVICE_BASE,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 1)) {
 
             fail("failed to create SPI reset state");
@@ -986,7 +986,7 @@ private:
         }
 
         if (!write32(
-                generated::RV_TIMER_BASE,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 1)) {
 
             fail("failed to start timer");
@@ -1047,7 +1047,7 @@ private:
         }
 
         if (!read32(
-                generated::UART0_BASE,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1065,7 +1065,7 @@ private:
         }
 
         if (!read32(
-                generated::SPI_DEVICE_BASE,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1092,7 +1092,7 @@ private:
         }
 
         if (!read32(
-                generated::RV_TIMER_BASE,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 value) ||
             value != 0) {
 
