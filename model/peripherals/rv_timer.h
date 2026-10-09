@@ -10,6 +10,7 @@
 
 class RvTimer : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(RvTimer);
     tlm_utils::simple_target_socket<RvTimer> socket;
     sc_core::sc_out<bool> irq;
 
