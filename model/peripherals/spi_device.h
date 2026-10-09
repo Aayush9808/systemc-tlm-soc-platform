@@ -5,6 +5,8 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+
+#include "spi_device.h"
 #include <deque>
 
 class SpiDevice : public sc_core::sc_module {
@@ -13,11 +15,11 @@ public:
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CONTROL = 0x00,
-        CFG     = 0x04,
-        STATUS  = 0x08,
-        TX      = 0x0C,
-        RX      = 0x10
+        CONTROL = generated::spi_device::CONTROL_OFFSET,
+        CFG     = generated::spi_device::CFG_OFFSET,
+        STATUS  = generated::spi_device::STATUS_OFFSET,
+        TX      = generated::spi_device::TX_OFFSET,
+        RX      = generated::spi_device::RX_OFFSET
     };
 
     SpiDevice(sc_core::sc_module_name name)
