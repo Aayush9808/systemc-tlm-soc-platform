@@ -110,7 +110,7 @@ def expect_register_relocation():
             soc_data, device_data = generate.validate_all()
             generate.generate_all(soc_data, device_data)
             header = (out_dir / "include" / "uart0.h").read_text()
-            if "WDATA_OFFSET = 0x00000020" not in header:
+            if "WDATA_OFFSET = 0x00000020;" not in header:
                 raise SystemExit("FAIL: relocated UART register offset was not generated")
             print("[PASS] UART register relocation regenerates register offsets")
         finally:
