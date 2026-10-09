@@ -88,6 +88,36 @@ def expect_address_relocation():
             generate.OUT_DIR = original_out_dir
 
 
+def expect_register_relocation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        uart_path = spec_dir / "uart.yaml"
+        data = load(uart_path)
+        wdata = next(reg for reg in data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        save(uart_path, data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+            header = (out_dir / "include" / "uart0.h").read_text()
+            if "WDATA_OFFSET = 0x00000020" not in header:
+                raise SystemExit("FAIL: relocated UART register offset was not generated")
+            print("[PASS] UART register relocation regenerates register offsets")
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+
 def check_firmware_uses_generated_bases():
     source = (ROOT / "src" / "main.cpp").read_text()
     required = [
@@ -165,6 +195,7 @@ def main():
     )
 
     expect_address_relocation()
+    expect_register_relocation()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
 
