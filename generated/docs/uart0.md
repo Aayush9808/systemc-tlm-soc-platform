@@ -6,7 +6,7 @@
 
 | Register | Offset | Access | Reset | Mask |
 |---|---:|---|---:|---:|
-| CTRL | 0x00000000 | RW | 0x00000000 | 0xFFFFFFFF |
+| CTRL | 0x00000000 | RW | 0x00000000 | 0x00000003 |
 | STATUS | 0x00000004 | RO | 0x00000000 | 0xFFFFFFFF |
 | RDATA | 0x00000008 | RO | 0x00000000 | 0xFFFFFFFF |
 | WDATA | 0x0000000C | WO | 0x00000000 | 0xFFFFFFFF |
