@@ -5,6 +5,8 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+
+#include "gpio.h"
 #include <functional>
 
 class Gpio : public sc_core::sc_module {
@@ -17,17 +19,17 @@ public:
         std::function<void(uint32_t)>;
 
     enum Register : uint32_t {
-        DATA_IN          = 0x00,
-        DIRECT_OUT       = 0x04,
-        MASKED_OUT_LOWER = 0x08,
-        MASKED_OUT_UPPER = 0x0C,
-        DIRECT_OE        = 0x10,
-        MASKED_OE_LOWER  = 0x14,
-        MASKED_OE_UPPER  = 0x18,
-        INTR_STATE       = 0x1C,
-        INTR_ENABLE      = 0x20,
-        INTR_RISE        = 0x24,
-        INTR_FALL        = 0x28
+        DATA_IN          = generated::gpio::DATA_IN_OFFSET,
+        DIRECT_OUT       = generated::gpio::DIRECT_OUT_OFFSET,
+        MASKED_OUT_LOWER = generated::gpio::MASKED_OUT_LOWER_OFFSET,
+        MASKED_OUT_UPPER = generated::gpio::MASKED_OUT_UPPER_OFFSET,
+        DIRECT_OE        = generated::gpio::DIRECT_OE_OFFSET,
+        MASKED_OE_LOWER  = generated::gpio::MASKED_OE_LOWER_OFFSET,
+        MASKED_OE_UPPER  = generated::gpio::MASKED_OE_UPPER_OFFSET,
+        INTR_STATE       = generated::gpio::INTR_STATE_OFFSET,
+        INTR_ENABLE      = generated::gpio::INTR_ENABLE_OFFSET,
+        INTR_RISE        = generated::gpio::INTR_RISE_OFFSET,
+        INTR_FALL        = generated::gpio::INTR_FALL_OFFSET
     };
 
     Gpio(sc_core::sc_module_name name)
