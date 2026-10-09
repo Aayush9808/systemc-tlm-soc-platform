@@ -96,6 +96,28 @@ def check_firmware_uses_generated_bases():
     print("[PASS] firmware references generated peripheral bases")
 
 
+def check_models_use_generated_register_offsets():
+    models = {
+        "uart.h": ("uart0", ["CTRL_OFFSET", "WDATA_OFFSET", "INTR_STATE_OFFSET"]),
+        "gpio.h": ("gpio", ["DATA_IN_OFFSET", "DIRECT_OUT_OFFSET", "INTR_STATE_OFFSET"]),
+        "rv_timer.h": ("rv_timer", ["CTRL_OFFSET", "TIMER_V_LOWER_OFFSET", "INTR_STATE_OFFSET"]),
+        "spi_device.h": ("spi_device", ["CONTROL_OFFSET", "TX_OFFSET", "RX_OFFSET"]),
+    }
+
+    for filename, (namespace, symbols) in models.items():
+        source = (ROOT / "model" / "peripherals" / filename).read_text()
+        if f"../../generated/include/{filename.replace('uart.h', 'uart0.h')}" not in source and filename == "uart.h":
+            raise SystemExit("FAIL: UART model does not include generated register definitions")
+        if filename != "uart.h" and f"../../generated/include/{filename}" not in source:
+            raise SystemExit(f"FAIL: {filename} does not include its generated register definitions")
+        for symbol in symbols:
+            reference = f"generated::{namespace}::{symbol}"
+            if reference not in source:
+                raise SystemExit(f"FAIL: {filename} is missing generated register reference {reference}")
+
+    print("[PASS] peripheral models use generated register offsets")
+
+
 def main():
     expect_failure(
         "overlapping memory ranges",
@@ -114,6 +136,7 @@ def main():
 
     expect_address_relocation()
     check_firmware_uses_generated_bases()
+    check_models_use_generated_register_offsets()
 
     print("GENERATOR VALIDATION TEST: PASS")
 
