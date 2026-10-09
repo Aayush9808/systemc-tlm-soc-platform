@@ -38,6 +38,8 @@ public:
     SimpleInterconnect bus;
 
     bool failed = false;
+    uint32_t observed_gpio_output = 0;
+    uint64_t gpio_output_notifications = 0;
 
     SocSim(
         sc_core::sc_module_name name,
@@ -79,6 +81,11 @@ public:
         irq.gpio_irq(gpio_irq);
         irq.uart_irq(uart_irq);
         irq.cpu_irq(cpu_irq);
+
+        gpio.set_output_callback([this](uint32_t value) {
+            observed_gpio_output = value;
+            ++gpio_output_notifications;
+        });
 
         SC_THREAD(run);
     }
@@ -918,6 +925,14 @@ private:
             return false;
         }
 
+        if (observed_gpio_output != 0x00000055) {
+            fail("GPIO output observer did not receive output update");
+            return false;
+        }
+
+        const uint64_t notifications_before_reset =
+            gpio_output_notifications;
+
         if (!write32(
                 generated::UART0_BASE,
                 1)) {
@@ -1009,6 +1024,12 @@ private:
             value != 0) {
 
             fail("GPIO output was not reset");
+            return false;
+        }
+
+        if (observed_gpio_output != 0 ||
+            gpio_output_notifications <= notifications_before_reset) {
+            fail("GPIO reset did not notify output observer");
             return false;
         }
 
@@ -1143,6 +1164,8 @@ private:
 
         std::cout
             << "SRAM, GPIO, UART, Timer, SPI and IRQ state cleared\n";
+        std::cout
+            << "GPIO output observer stayed synchronized through reset: PASS\n";
 
         std::cout
             << "RESET SCENARIO: PASS\n";
