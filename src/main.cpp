@@ -445,6 +445,24 @@ private:
         std::cout
             << "\n=== UART IRQ SCENARIO ===\n";
 
+        // STATUS is schema-declared RO: a write must not alter
+        // the value observed by a subsequent read.
+        uint32_t uart_status_before = 0;
+        uint32_t uart_status_after = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                uart_status_before) ||
+            !write32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                0) ||
+            !read32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                uart_status_after) ||
+            uart_status_before != uart_status_after) {
+            fail("UART read-only STATUS register changed after write");
+            return false;
+        }
+
         if (!write32(
                 (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 1)) {
@@ -504,6 +522,15 @@ private:
                 1)) {
 
             fail("UART interrupt clear failed");
+            return false;
+        }
+
+        uint32_t uart_intr_state = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
+                uart_intr_state) ||
+            (uart_intr_state & 1u) != 0) {
+            fail("UART W1C interrupt state did not clear");
             return false;
         }
 
