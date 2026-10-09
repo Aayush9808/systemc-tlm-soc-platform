@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "gpio.h"
+#include "../../generated/include/gpio.h"
 #include <functional>
 
 class Gpio : public sc_core::sc_module {
