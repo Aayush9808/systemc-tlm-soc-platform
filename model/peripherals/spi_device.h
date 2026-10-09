@@ -36,8 +36,8 @@ public:
     }
 
     void reset() {
-        control = 0;
-        cfg = 0;
+        control = generated::spi_device::CONTROL_RESET;
+        cfg = generated::spi_device::CFG_RESET;
 
         tx_fifo.clear();
         rx_fifo.clear();
@@ -46,8 +46,8 @@ public:
     }
 
 private:
-    uint32_t control = 0;
-    uint32_t cfg = 0;
+    uint32_t control = generated::spi_device::CONTROL_RESET;
+    uint32_t cfg = generated::spi_device::CFG_RESET;
 
     std::deque<uint8_t> tx_fifo;
     std::deque<uint8_t> rx_fifo;
