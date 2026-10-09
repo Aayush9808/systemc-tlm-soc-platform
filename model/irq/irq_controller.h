@@ -6,6 +6,8 @@
 
 #include <cstdint>
 
+#include "../../generated/include/irq.h"
+
 class IrqController : public sc_core::sc_module {
 public:
     SC_HAS_PROCESS(IrqController);
@@ -19,10 +21,10 @@ public:
     sc_core::sc_out<bool> cpu_irq;
 
     enum Register : uint32_t {
-        PENDING  = 0x00,
-        ENABLE   = 0x04,
-        CLAIM    = 0x08,
-        COMPLETE = 0x0C
+        PENDING  = generated::irq::PENDING_OFFSET,
+        ENABLE   = generated::irq::ENABLE_OFFSET,
+        CLAIM    = generated::irq::CLAIM_OFFSET,
+        COMPLETE = generated::irq::COMPLETE_OFFSET
     };
 
     IrqController(sc_core::sc_module_name name)
