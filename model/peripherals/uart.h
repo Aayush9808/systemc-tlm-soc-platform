@@ -55,9 +55,9 @@ public:
     }
 
     void reset() {
-        ctrl = 0;
-        intr_state = 0;
-        intr_enable = 0;
+        ctrl = generated::uart0::CTRL_RESET;
+        intr_state = generated::uart0::INTR_STATE_RESET;
+        intr_enable = generated::uart0::INTR_ENABLE_RESET;
 
         tx_fifo.clear();
         rx_fifo.clear();
@@ -81,9 +81,9 @@ public:
     }
 
 private:
-    uint32_t ctrl = 0;
-    uint32_t intr_state = 0;
-    uint32_t intr_enable = 0;
+    uint32_t ctrl = generated::uart0::CTRL_RESET;
+    uint32_t intr_state = generated::uart0::INTR_STATE_RESET;
+    uint32_t intr_enable = generated::uart0::INTR_ENABLE_RESET;
 
     std::deque<uint8_t> tx_fifo;
     std::deque<uint8_t> rx_fifo;
