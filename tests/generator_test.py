@@ -72,7 +72,17 @@ def expect_address_relocation():
             header = (out_dir / "include" / "soc_memory_map.h").read_text()
             if "UART0_BASE = 0x50000000ULL" not in header:
                 raise SystemExit("FAIL: relocated UART address was not generated")
+
+            # Regeneration must preserve register metadata while relocating the
+            # peripheral, and generated artifacts must be emitted as a set.
+            metadata = (out_dir / "include" / "register_metadata.h").read_text()
+            uart_header = (out_dir / "include" / "uart0.h").read_text()
+            if "enum class RegisterAccess" not in metadata:
+                raise SystemExit("FAIL: shared register metadata header was not generated")
+            if '#include "register_metadata.h"' not in uart_header:
+                raise SystemExit("FAIL: UART header does not include shared metadata")
             print("[PASS] UART address relocation regenerates memory map")
+            print("[PASS] generated register metadata is emitted consistently")
         finally:
             generate.SPEC_DIR = original_spec_dir
             generate.OUT_DIR = original_out_dir
@@ -134,6 +144,26 @@ def main():
         lambda spec_dir: unaligned_offset(spec_dir),
     )
 
+    expect_failure(
+        "duplicate register name",
+        lambda spec_dir: duplicate_register_name(spec_dir),
+    )
+
+    expect_failure(
+        "duplicate register offset",
+        lambda spec_dir: duplicate_register_offset(spec_dir),
+    )
+
+    expect_failure(
+        "out-of-range reset value",
+        lambda spec_dir: invalid_reset(spec_dir),
+    )
+
+    expect_failure(
+        "out-of-range register mask",
+        lambda spec_dir: invalid_mask(spec_dir),
+    )
+
     expect_address_relocation()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
@@ -159,6 +189,34 @@ def unaligned_offset(spec_dir):
     path = spec_dir / "gpio.yaml"
     data = load(path)
     data["registers"][0]["offset"] = 2
+    save(path, data)
+
+
+def duplicate_register_name(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][1]["name"] = data["registers"][0]["name"]
+    save(path, data)
+
+
+def duplicate_register_offset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][1]["offset"] = data["registers"][0]["offset"]
+    save(path, data)
+
+
+def invalid_reset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["reset"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_mask(spec_dir):
+    path = spec_dir / "gpio.yaml"
+    data = load(path)
+    data["registers"][0]["mask"] = "0x100000000"
     save(path, data)
 
 
