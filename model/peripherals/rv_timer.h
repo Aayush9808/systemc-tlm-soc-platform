@@ -52,14 +52,18 @@ public:
     }
 
 private:
-    uint32_t ctrl = 0;
-    uint32_t cfg0 = 0;
+    uint32_t ctrl = generated::rv_timer::CTRL_RESET;
+    uint32_t cfg0 = generated::rv_timer::CFG0_RESET;
 
-    uint64_t timer_value = 0;
-    uint64_t compare_value = 0;
+    uint64_t timer_value =
+        (static_cast<uint64_t>(generated::rv_timer::TIMER_V_UPPER_RESET) << 32) |
+        generated::rv_timer::TIMER_V_LOWER_RESET;
+    uint64_t compare_value =
+        (static_cast<uint64_t>(generated::rv_timer::COMPARE_UPPER_RESET) << 32) |
+        generated::rv_timer::COMPARE_LOWER_RESET;
 
-    uint32_t intr_state = 0;
-    uint32_t intr_enable = 0;
+    uint32_t intr_state = generated::rv_timer::INTR_STATE_RESET;
+    uint32_t intr_enable = generated::rv_timer::INTR_ENABLE_RESET;
 
     bool timer_running = false;
 
@@ -439,14 +443,18 @@ private:
 
             compare_event.cancel();
 
-            ctrl = 0;
-            cfg0 = 0;
+            ctrl = generated::rv_timer::CTRL_RESET;
+            cfg0 = generated::rv_timer::CFG0_RESET;
 
-            timer_value = 0;
-            compare_value = 0;
+            timer_value =
+                (static_cast<uint64_t>(generated::rv_timer::TIMER_V_UPPER_RESET) << 32) |
+                generated::rv_timer::TIMER_V_LOWER_RESET;
+            compare_value =
+                (static_cast<uint64_t>(generated::rv_timer::COMPARE_UPPER_RESET) << 32) |
+                generated::rv_timer::COMPARE_LOWER_RESET;
 
-            intr_state = 0;
-            intr_enable = 0;
+            intr_state = generated::rv_timer::INTR_STATE_RESET;
+            intr_enable = generated::rv_timer::INTR_ENABLE_RESET;
 
             timer_running = false;
 
