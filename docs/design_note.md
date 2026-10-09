@@ -102,7 +102,7 @@ The generator validates:
 
 It generates memory-map constants, register metadata, dispatch helpers, software headers, register documentation and verification artifacts.
 
-Generated code is kept separate from handwritten model behavior. Static metadata and register offsets are generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten. Generated reset constants are consumed by the peripheral and IRQ state initialization/reset paths. Generated access and mask metadata is available for verification, but access-policy and mask enforcement is still not universal across every handwritten peripheral model.
+Generated code is kept separate from handwritten model behavior. Static metadata and register offsets are generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten. Generated reset constants are consumed by peripheral and IRQ state initialization/reset paths. All register-backed peripheral and IRQ targets look up the generated metadata before accepting a transaction: unknown offsets are rejected, RO/WO access rules are enforced, and write values are masked according to YAML. W1C behavior remains implemented in each target's state-transition logic and is covered by integration checks.
 
 The generator also has a --check mode that generates into a temporary directory and compares the result with committed generated output, so stale generated files are detected without modifying the repository.
 
