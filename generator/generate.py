@@ -328,7 +328,7 @@ def generate_soc_map(data):
 def generate_register_metadata_header():
     output = OUT_DIR / "include" / "register_metadata.h"
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("\\n".join([
+    output.write_text("\n".join([
         "#pragma once",
         "",
         "#include <cstdint>",
