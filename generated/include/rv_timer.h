@@ -20,12 +20,12 @@ constexpr const char* CFG0_ACCESS = "RW";
 constexpr uint32_t TIMER_V_LOWER_OFFSET = 0x00000008;
 constexpr uint32_t TIMER_V_LOWER_RESET = 0x00000000;
 constexpr uint32_t TIMER_V_LOWER_MASK = 0xFFFFFFFF;
-constexpr const char* TIMER_V_LOWER_ACCESS = "RO";
+constexpr const char* TIMER_V_LOWER_ACCESS = "RW";
 
 constexpr uint32_t TIMER_V_UPPER_OFFSET = 0x0000000C;
 constexpr uint32_t TIMER_V_UPPER_RESET = 0x00000000;
 constexpr uint32_t TIMER_V_UPPER_MASK = 0xFFFFFFFF;
-constexpr const char* TIMER_V_UPPER_ACCESS = "RO";
+constexpr const char* TIMER_V_UPPER_ACCESS = "RW";
 
 constexpr uint32_t COMPARE_LOWER_OFFSET = 0x00000010;
 constexpr uint32_t COMPARE_LOWER_RESET = 0x00000000;
@@ -50,8 +50,8 @@ constexpr const char* INTR_ENABLE_ACCESS = "RW";
 constexpr RegisterMetadata REGISTERS[] = {
     {"CTRL", 0x00000000, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
     {"CFG0", 0x00000004, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
-    {"TIMER_V_LOWER", 0x00000008, 0x00000000, 0xFFFFFFFF, RegisterAccess::RO},
-    {"TIMER_V_UPPER", 0x0000000C, 0x00000000, 0xFFFFFFFF, RegisterAccess::RO},
+    {"TIMER_V_LOWER", 0x00000008, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
+    {"TIMER_V_UPPER", 0x0000000C, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
     {"COMPARE_LOWER", 0x00000010, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
     {"COMPARE_UPPER", 0x00000014, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
     {"INTR_STATE", 0x00000018, 0x00000000, 0xFFFFFFFF, RegisterAccess::W1C},
