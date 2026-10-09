@@ -461,7 +461,7 @@ private:
             timer_base_time =
                 sc_core::sc_time_stamp();
 
-            timer_base_value = 0;
+            timer_base_value = timer_value;
 
             read_latch = 0;
             read_latch_valid = false;
