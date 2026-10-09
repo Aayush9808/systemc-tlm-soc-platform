@@ -159,8 +159,35 @@ private:
             return;
         }
 
+        const auto* register_metadata = generated::lookup_register(
+            generated::gpio::REGISTERS,
+            generated::gpio::REGISTER_COUNT,
+            static_cast<uint32_t>(address)
+        );
+
+        if (register_metadata == nullptr) {
+            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+
+        if ((trans.is_read() &&
+             !generated::register_read_allowed(*register_metadata)) ||
+            (trans.is_write() &&
+             !generated::register_write_allowed(*register_metadata))) {
+            trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+            return;
+        }
+
         if (trans.is_write()) {
-            write_register(address, data);
+            unsigned char masked_data[4];
+            generated::store_register_value(
+                masked_data,
+                generated::apply_register_mask(
+                    *register_metadata,
+                    generated::load_register_value(data)
+                )
+            );
+            write_register(address, masked_data);
         }
         else if (trans.is_read()) {
             read_register(address, data);
