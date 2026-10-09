@@ -7,7 +7,7 @@ device:
 registers:
   - name: PENDING
     offset: 0x00
-    access: RW
+    access: W1C
     reset: 0x00000000
 
   - name: ENABLE
