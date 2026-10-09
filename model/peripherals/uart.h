@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "uart0.h"
+#include "../../generated/include/uart0.h"
 #include <deque>
 #include <iostream>
 
