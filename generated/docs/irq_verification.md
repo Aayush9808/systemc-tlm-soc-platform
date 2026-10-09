@@ -22,4 +22,3 @@ Generated from the device schema.
 - The memory map is generated as a data-driven table.
 - Register metadata is generated from the schema.
 - Software offsets and masks are generated.
-
