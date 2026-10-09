@@ -5,6 +5,8 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+
+#include "uart0.h"
 #include <deque>
 #include <iostream>
 
@@ -14,14 +16,14 @@ public:
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CTRL        = 0x00,
-        STATUS      = 0x04,
-        RDATA       = 0x08,
-        WDATA       = 0x0C,
-        FIFO_CTRL   = 0x10,
-        FIFO_STATUS = 0x14,
-        INTR_STATE  = 0x18,
-        INTR_ENABLE = 0x1C
+        CTRL        = generated::uart0::CTRL_OFFSET,
+        STATUS      = generated::uart0::STATUS_OFFSET,
+        RDATA       = generated::uart0::RDATA_OFFSET,
+        WDATA       = generated::uart0::WDATA_OFFSET,
+        FIFO_CTRL   = generated::uart0::FIFO_CTRL_OFFSET,
+        FIFO_STATUS = generated::uart0::FIFO_STATUS_OFFSET,
+        INTR_STATE  = generated::uart0::INTR_STATE_OFFSET,
+        INTR_ENABLE = generated::uart0::INTR_ENABLE_OFFSET
     };
 
     enum ControlBits : uint32_t {
