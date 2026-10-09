@@ -180,6 +180,11 @@ def validate_device(data, path):
                 f"{prefix}: offset cannot be negative"
             )
 
+        if offset > 0xFFFFFFFF:
+            raise ValueError(
+                f"{prefix}: offset must fit in 32 bits"
+            )
+
         if offset % 4 != 0:
             raise ValueError(
                 f"{prefix}: offset {hex_value(offset)} "
