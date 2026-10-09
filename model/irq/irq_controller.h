@@ -8,6 +8,7 @@
 
 class IrqController : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(IrqController);
     tlm_utils::simple_target_socket<IrqController> socket;
 
     sc_core::sc_in<bool> timer_irq;
