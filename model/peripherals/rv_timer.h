@@ -6,20 +6,22 @@
 
 #include <cstdint>
 
+#include "rv_timer.h"
+
 class RvTimer : public sc_core::sc_module {
 public:
     tlm_utils::simple_target_socket<RvTimer> socket;
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CTRL          = 0x00,
-        CFG0          = 0x04,
-        TIMER_V_LOWER = 0x08,
-        TIMER_V_UPPER = 0x0C,
-        COMPARE_LOWER = 0x10,
-        COMPARE_UPPER = 0x14,
-        INTR_STATE    = 0x18,
-        INTR_ENABLE   = 0x1C
+        CTRL          = generated::rv_timer::CTRL_OFFSET,
+        CFG0          = generated::rv_timer::CFG0_OFFSET,
+        TIMER_V_LOWER = generated::rv_timer::TIMER_V_LOWER_OFFSET,
+        TIMER_V_UPPER = generated::rv_timer::TIMER_V_UPPER_OFFSET,
+        COMPARE_LOWER = generated::rv_timer::COMPARE_LOWER_OFFSET,
+        COMPARE_UPPER = generated::rv_timer::COMPARE_UPPER_OFFSET,
+        INTR_STATE    = generated::rv_timer::INTR_STATE_OFFSET,
+        INTR_ENABLE   = generated::rv_timer::INTR_ENABLE_OFFSET
     };
 
     RvTimer(sc_core::sc_module_name name)
