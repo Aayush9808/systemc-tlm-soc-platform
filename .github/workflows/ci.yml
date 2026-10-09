@@ -1,0 +1,33 @@
+name: Build and test SoC platform
+
+on:
+  push:
+    branches:
+      - main
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libsystemc-dev python3 python3-yaml
+
+      - name: Validate generated artifacts
+        run: python3 generator/generate.py --check
+
+      - name: Configure
+        run: cmake -S . -B build -DSYSTEMC_ROOT=/usr
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure
