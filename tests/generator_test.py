@@ -279,6 +279,24 @@ def check_models_use_generated_reset_values():
     print("[PASS] peripheral and IRQ reset values consume generated YAML metadata")
 
 
+def check_irq_w1c_metadata():
+    spec = load(SOURCE_SPECS / "irq.yaml")
+    pending = next(reg for reg in spec["registers"] if reg["name"] == "PENDING")
+    if pending["access"] != "W1C":
+        raise SystemExit("FAIL: IRQ PENDING must be declared W1C in YAML")
+
+    header = (ROOT / "generated" / "include" / "irq.h").read_text()
+    if 'PENDING_ACCESS = "W1C"' not in header:
+        raise SystemExit("FAIL: generated IRQ metadata lost PENDING W1C access")
+    if '{"PENDING", 0x00000000, 0x00000000, 0xFFFFFFFF, RegisterAccess::W1C}' not in header:
+        raise SystemExit("FAIL: IRQ PENDING metadata is not generated as W1C")
+
+    controller = (ROOT / "model" / "irq" / "irq_controller.h").read_text()
+    if "pending &= ~value;" not in controller:
+        raise SystemExit("FAIL: IRQ PENDING W1C behavior is missing")
+    print("[PASS] IRQ PENDING W1C metadata matches the model behavior")
+
+
 def main():
     expect_failure(
         "overlapping memory ranges",
@@ -335,6 +353,7 @@ def main():
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
+    check_irq_w1c_metadata()
 
     print("GENERATOR VALIDATION TEST: PASS")
 
