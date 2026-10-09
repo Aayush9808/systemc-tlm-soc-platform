@@ -231,6 +231,39 @@ def check_models_use_generated_register_offsets():
     print("[PASS] IRQ controller uses generated register offsets")
 
 
+def check_models_enforce_generated_register_policy():
+    model_files = [
+        "model/peripherals/uart.h",
+        "model/peripherals/gpio.h",
+        "model/peripherals/rv_timer.h",
+        "model/peripherals/spi_device.h",
+        "model/irq/irq_controller.h",
+    ]
+    required_helpers = [
+        "generated::lookup_register(",
+        "generated::register_read_allowed(",
+        "generated::register_write_allowed(",
+        "generated::apply_register_mask(",
+    ]
+    for filename in model_files:
+        source = (ROOT / filename).read_text()
+        missing = [helper for helper in required_helpers if helper not in source]
+        if missing:
+            raise SystemExit(
+                f"FAIL: {filename} does not enforce generated register metadata: "
+                + ", ".join(missing)
+            )
+
+    uart_spec = load(SOURCE_SPECS / "uart.yaml")
+    ctrl = next(reg for reg in uart_spec["registers"] if reg["name"] == "CTRL")
+    if ctrl.get("mask") != "0x00000003" and ctrl.get("mask") != 3:
+        raise SystemExit("FAIL: UART CTRL mask test fixture must limit writable bits to 0x3")
+    uart_header = (ROOT / "generated" / "include" / "uart0.h").read_text()
+    if "CTRL_MASK = 0x00000003" not in uart_header:
+        raise SystemExit("FAIL: generated UART CTRL mask does not match YAML")
+    print("[PASS] all target models enforce generated register access and masks")
+
+
 def check_models_use_generated_reset_values():
     model_requirements = {
         "model/peripherals/uart.h": [
@@ -353,6 +386,7 @@ def main():
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
+    check_models_enforce_generated_register_policy()
     check_irq_w1c_metadata()
 
     print("GENERATOR VALIDATION TEST: PASS")
