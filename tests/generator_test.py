@@ -189,6 +189,16 @@ def main():
     )
 
     expect_failure(
+        "invalid C++ register identifier",
+        lambda spec_dir: invalid_register_identifier(spec_dir),
+    )
+
+    expect_failure(
+        "invalid C++ memory-map identifier",
+        lambda spec_dir: invalid_memory_map_identifier(spec_dir),
+    )
+
+    expect_failure(
         "duplicate register name",
         lambda spec_dir: duplicate_register_name(spec_dir),
     )
@@ -241,6 +251,20 @@ def out_of_range_offset(spec_dir):
     path = spec_dir / "uart.yaml"
     data = load(path)
     data["registers"][0]["offset"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_register_identifier(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["name"] = "CTRL-REGISTER"
+    save(path, data)
+
+
+def invalid_memory_map_identifier(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["name"] = "ROM-BLOCK"
     save(path, data)
 
 
