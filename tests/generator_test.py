@@ -231,6 +231,54 @@ def check_models_use_generated_register_offsets():
     print("[PASS] IRQ controller uses generated register offsets")
 
 
+def check_models_use_generated_reset_values():
+    model_requirements = {
+        "model/peripherals/uart.h": [
+            "generated::uart0::CTRL_RESET",
+            "generated::uart0::INTR_STATE_RESET",
+            "generated::uart0::INTR_ENABLE_RESET",
+        ],
+        "model/peripherals/gpio.h": [
+            "generated::gpio::DATA_IN_RESET",
+            "generated::gpio::DIRECT_OUT_RESET",
+            "generated::gpio::DIRECT_OE_RESET",
+            "generated::gpio::INTR_STATE_RESET",
+            "generated::gpio::INTR_ENABLE_RESET",
+            "generated::gpio::INTR_RISE_RESET",
+            "generated::gpio::INTR_FALL_RESET",
+        ],
+        "model/peripherals/rv_timer.h": [
+            "generated::rv_timer::CTRL_RESET",
+            "generated::rv_timer::CFG0_RESET",
+            "generated::rv_timer::TIMER_V_LOWER_RESET",
+            "generated::rv_timer::TIMER_V_UPPER_RESET",
+            "generated::rv_timer::COMPARE_LOWER_RESET",
+            "generated::rv_timer::COMPARE_UPPER_RESET",
+            "generated::rv_timer::INTR_STATE_RESET",
+            "generated::rv_timer::INTR_ENABLE_RESET",
+        ],
+        "model/peripherals/spi_device.h": [
+            "generated::spi_device::CONTROL_RESET",
+            "generated::spi_device::CFG_RESET",
+        ],
+        "model/irq/irq_controller.h": [
+            "generated::irq::PENDING_RESET",
+            "generated::irq::ENABLE_RESET",
+        ],
+    }
+
+    for filename, symbols in model_requirements.items():
+        source = (ROOT / filename).read_text()
+        missing = [symbol for symbol in symbols if symbol not in source]
+        if missing:
+            raise SystemExit(
+                f"FAIL: {filename} does not consume generated reset metadata: "
+                + ", ".join(missing)
+            )
+
+    print("[PASS] peripheral and IRQ reset values consume generated YAML metadata")
+
+
 def main():
     expect_failure(
         "overlapping memory ranges",
@@ -286,6 +334,7 @@ def main():
     expect_register_relocation()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
+    check_models_use_generated_reset_values()
 
     print("GENERATOR VALIDATION TEST: PASS")
 
