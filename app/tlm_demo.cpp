@@ -17,6 +17,7 @@
 
 class TlmDemo : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(TlmDemo);
     tlm_utils::simple_initiator_socket<TlmDemo> socket;
 
     sc_core::sc_signal<bool> timer_irq;
