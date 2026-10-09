@@ -99,6 +99,8 @@ def expect_register_relocation():
         data = load(uart_path)
         wdata = next(reg for reg in data["registers"] if reg["name"] == "WDATA")
         wdata["offset"] = "0x20"
+        wdata["reset"] = "0x1234"
+        wdata["mask"] = "0xFF"
         save(uart_path, data)
 
         original_spec_dir = generate.SPEC_DIR
@@ -112,7 +114,14 @@ def expect_register_relocation():
             header = (out_dir / "include" / "uart0.h").read_text()
             if "WDATA_OFFSET = 0x00000020;" not in header:
                 raise SystemExit("FAIL: relocated UART register offset was not generated")
+            if "WDATA_RESET = 0x00001234;" not in header:
+                raise SystemExit("FAIL: UART register reset metadata was not generated")
+            if "WDATA_MASK = 0x000000FF;" not in header:
+                raise SystemExit("FAIL: UART register mask metadata was not generated")
+            if "RegisterAccess::WO" not in header:
+                raise SystemExit("FAIL: UART register access metadata was not generated")
             print("[PASS] UART register relocation regenerates register offsets")
+            print("[PASS] register reset, mask and access metadata follow YAML")
         finally:
             generate.SPEC_DIR = original_spec_dir
             generate.OUT_DIR = original_out_dir
