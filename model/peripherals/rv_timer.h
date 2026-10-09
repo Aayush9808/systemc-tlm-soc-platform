@@ -70,7 +70,7 @@ private:
     sc_core::sc_time timer_base_time =
         sc_core::SC_ZERO_TIME;
 
-    uint64_t timer_base_value = 0;
+    uint64_t timer_base_value = timer_value;
 
     uint64_t read_latch = 0;
     bool read_latch_valid = false;
