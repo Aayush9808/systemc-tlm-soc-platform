@@ -27,6 +27,7 @@ set(GENERATED_REGISTER_SOURCES
     generated/src/gpio_registers.cpp
     generated/src/rv_timer_registers.cpp
     generated/src/spi_device_registers.cpp
+    generated/src/irq_registers.cpp
 )
 
 add_executable(soc_sim
