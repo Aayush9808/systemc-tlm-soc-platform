@@ -48,6 +48,54 @@ def save(path, data):
         yaml.safe_dump(data, file, sort_keys=False)
 
 
+def expect_address_relocation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        soc_path = spec_dir / "soc.yaml"
+        data = load(soc_path)
+        uart = next(entry for entry in data["memory_map"] if entry["name"] == "UART0")
+        uart["base"] = "0x50000000"
+        save(soc_path, data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+            header = (out_dir / "include" / "soc_memory_map.h").read_text()
+            if "UART0_BASE = 0x50000000ULL" not in header:
+                raise SystemExit("FAIL: relocated UART address was not generated")
+            print("[PASS] UART address relocation regenerates memory map")
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+
+def check_firmware_uses_generated_bases():
+    source = (ROOT / "src" / "main.cpp").read_text()
+    required = [
+        "generated::UART0_BASE",
+        "generated::GPIO_BASE",
+        "generated::RV_TIMER_BASE",
+        "generated::SPI_DEVICE_BASE",
+        "generated::IRQ_BASE",
+    ]
+    missing = [name for name in required if name not in source]
+    if missing:
+        raise SystemExit(
+            "FAIL: firmware is missing generated address constants: "
+            + ", ".join(missing)
+        )
+    print("[PASS] firmware references generated peripheral bases")
+
+
 def main():
     expect_failure(
         "overlapping memory ranges",
@@ -63,6 +111,9 @@ def main():
         "unaligned register offset",
         lambda spec_dir: unaligned_offset(spec_dir),
     )
+
+    expect_address_relocation()
+    check_firmware_uses_generated_bases()
 
     print("GENERATOR VALIDATION TEST: PASS")
 
