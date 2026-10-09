@@ -324,19 +324,11 @@ def generate_soc_map(data):
     print(f"generated: {output}")
 
 
-def generate_device_header(data):
-    device_name = data["device"]["name"]
-    namespace_name = device_name.lower()
 
-    output = (
-        OUT_DIR /
-        "include" /
-        f"{namespace_name}.h"
-    )
-
+def generate_register_metadata_header():
+    output = OUT_DIR / "include" / "register_metadata.h"
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    lines = [
+    output.write_text("\\n".join([
         "#pragma once",
         "",
         "#include <cstdint>",
@@ -357,6 +349,32 @@ def generate_device_header(data):
         "    uint32_t mask;",
         "    RegisterAccess access;",
         "};",
+        "",
+        "}",
+        "",
+    ]))
+    print(f"generated: {output}")
+
+
+def generate_device_header(data):
+    device_name = data["device"]["name"]
+    namespace_name = device_name.lower()
+
+    output = (
+        OUT_DIR /
+        "include" /
+        f"{namespace_name}.h"
+    )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "#pragma once",
+        "",
+        "#include <cstdint>",
+        '#include "register_metadata.h"',
+        "",
+        "namespace generated {",
         "",
         f"namespace {namespace_name} {{",
         "",
