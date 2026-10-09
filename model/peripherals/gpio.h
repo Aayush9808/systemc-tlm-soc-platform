@@ -77,13 +77,13 @@ public:
     void reset() {
         const uint32_t previous_output = direct_out;
 
-        data_in = 0;
-        direct_out = 0;
-        output_enable = 0;
-        intr_state = 0;
-        intr_enable = 0;
-        intr_rise = 0;
-        intr_fall = 0;
+        data_in = generated::gpio::DATA_IN_RESET;
+        direct_out = generated::gpio::DIRECT_OUT_RESET;
+        output_enable = generated::gpio::DIRECT_OE_RESET;
+        intr_state = generated::gpio::INTR_STATE_RESET;
+        intr_enable = generated::gpio::INTR_ENABLE_RESET;
+        intr_rise = generated::gpio::INTR_RISE_RESET;
+        intr_fall = generated::gpio::INTR_FALL_RESET;
 
         // Keep external observers (for example, a GPIO-backed LED) in sync
         // when reset changes the output state.
@@ -92,14 +92,14 @@ public:
     }
 
 private:
-    uint32_t data_in = 0;
-    uint32_t direct_out = 0;
-    uint32_t output_enable = 0;
+    uint32_t data_in = generated::gpio::DATA_IN_RESET;
+    uint32_t direct_out = generated::gpio::DIRECT_OUT_RESET;
+    uint32_t output_enable = generated::gpio::DIRECT_OE_RESET;
 
-    uint32_t intr_state = 0;
-    uint32_t intr_enable = 0;
-    uint32_t intr_rise = 0;
-    uint32_t intr_fall = 0;
+    uint32_t intr_state = generated::gpio::INTR_STATE_RESET;
+    uint32_t intr_enable = generated::gpio::INTR_ENABLE_RESET;
+    uint32_t intr_rise = generated::gpio::INTR_RISE_RESET;
+    uint32_t intr_fall = generated::gpio::INTR_FALL_RESET;
 
     OutputCallback output_callback;
 
