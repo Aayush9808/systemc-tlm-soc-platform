@@ -9,6 +9,7 @@ registers:
     offset: 0x00
     access: RW
     reset: 0x00000000
+    mask: 0x00000003
 
   - name: STATUS
     offset: 0x04
