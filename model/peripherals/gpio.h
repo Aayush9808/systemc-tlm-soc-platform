@@ -75,6 +75,8 @@ public:
     }
 
     void reset() {
+        const uint32_t previous_output = direct_out;
+
         data_in = 0;
         direct_out = 0;
         output_enable = 0;
@@ -82,6 +84,10 @@ public:
         intr_enable = 0;
         intr_rise = 0;
         intr_fall = 0;
+
+        // Keep external observers (for example, a GPIO-backed LED) in sync
+        // when reset changes the output state.
+        notify_output_change(previous_output, direct_out);
         irq.write(false);
     }
 
