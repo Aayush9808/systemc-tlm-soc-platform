@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "spi_device.h"
+#include "../../generated/include/spi_device.h"
 #include <deque>
 
 class SpiDevice : public sc_core::sc_module {
