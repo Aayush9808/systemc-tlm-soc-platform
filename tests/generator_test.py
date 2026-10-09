@@ -184,6 +184,11 @@ def main():
     )
 
     expect_failure(
+        "register offset outside 32-bit range",
+        lambda spec_dir: out_of_range_offset(spec_dir),
+    )
+
+    expect_failure(
         "duplicate register name",
         lambda spec_dir: duplicate_register_name(spec_dir),
     )
@@ -229,6 +234,13 @@ def unaligned_offset(spec_dir):
     path = spec_dir / "gpio.yaml"
     data = load(path)
     data["registers"][0]["offset"] = 2
+    save(path, data)
+
+
+def out_of_range_offset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["offset"] = "0x100000000"
     save(path, data)
 
 
