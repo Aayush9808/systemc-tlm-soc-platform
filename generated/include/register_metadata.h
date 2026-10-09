@@ -61,5 +61,4 @@ inline void store_register_value(unsigned char* data, uint32_t value) {
     data[3] = (value >> 24) & 0xff;
 }
 
-
 }
