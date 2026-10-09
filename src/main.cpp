@@ -19,6 +19,7 @@
 
 class SocSim : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(SocSim);
     tlm_utils::simple_initiator_socket<SocSim> socket;
 
     sc_core::sc_signal<bool> timer_irq;
