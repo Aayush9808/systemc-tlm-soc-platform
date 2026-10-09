@@ -6,7 +6,7 @@
 
 #include <cstdint>
 
-#include "rv_timer.h"
+#include "../../generated/include/rv_timer.h"
 
 class RvTimer : public sc_core::sc_module {
 public:
