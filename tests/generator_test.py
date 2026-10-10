@@ -252,6 +252,172 @@ int main() {
 
     print("[PASS] mutated YAML -> generated C++ -> compiled runtime contract")
 
+def expect_interconnect_address_relocation():
+    """
+    Compile the real interconnect against a regenerated map and send TLM
+    transactions through its socket. The moved UART base must route to UART
+    with a local register offset, while the old base must be unmapped.
+    """
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit(
+            "FAIL: CMake must pass SYSTEMC_INCLUDE_DIR and SYSTEMC_LIBRARY "
+            "to generator_validation"
+        )
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        interconnect_dir = temp_root / "model" / "interconnect"
+        interconnect_dir.mkdir(parents=True)
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        shutil.copy2(
+            ROOT / "model" / "interconnect" / "simple_interconnect.h",
+            interconnect_dir / "simple_interconnect.h",
+        )
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        uart_range["base"] = "0x50000000"
+        save(soc_path, soc_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        probe = temp_root / "interconnect_relocation_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_target_socket.h>
+#include <tlm_utils/simple_initiator_socket.h>
+#include <cstdint>
+#include "model/interconnect/simple_interconnect.h"
+
+struct DummyTarget : sc_core::sc_module {
+    tlm_utils::simple_target_socket<DummyTarget> socket;
+    uint64_t last_address = UINT64_MAX;
+    unsigned int calls = 0;
+
+    SC_CTOR(DummyTarget) : socket("socket") {
+        socket.register_b_transport(this, &DummyTarget::b_transport);
+    }
+
+    void b_transport(tlm::tlm_generic_payload& trans, sc_core::sc_time&) {
+        last_address = trans.get_address();
+        ++calls;
+        trans.set_response_status(tlm::TLM_OK_RESPONSE);
+    }
+};
+
+struct Initiator : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Initiator> socket;
+    bool passed = false;
+
+    SC_CTOR(Initiator) : socket("socket") {
+        SC_THREAD(run);
+    }
+
+    void transact(uint64_t address, tlm::tlm_response_status expected) {
+        unsigned char data[4] = {0, 0, 0, 0};
+        tlm::tlm_generic_payload trans;
+        trans.set_command(tlm::TLM_WRITE_COMMAND);
+        trans.set_address(address);
+        trans.set_data_ptr(data);
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_response_status(tlm::TLM_INCOMPLETE_RESPONSE);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        if (trans.get_response_status() != expected) passed = false;
+    }
+
+    void run() {
+        passed = true;
+        wait(sc_core::SC_ZERO_TIME);
+
+        transact(0x50000020ULL, tlm::TLM_OK_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        transact(0x40000020ULL, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int, char**) {
+    SimpleInterconnect bus("bus");
+    DummyTarget rom("rom"), sram("sram"), uart("uart"), gpio("gpio");
+    DummyTarget timer("timer"), spi("spi"), irq("irq");
+    Initiator initiator("initiator");
+
+    initiator.socket.bind(bus.target_socket);
+    bus.rom_socket.bind(rom.socket);
+    bus.memory_socket.bind(sram.socket);
+    bus.uart_socket.bind(uart.socket);
+    bus.gpio_socket.bind(gpio.socket);
+    bus.timer_socket.bind(timer.socket);
+    bus.spi_socket.bind(spi.socket);
+    bus.irq_socket.bind(irq.socket);
+
+    sc_core::sc_start();
+
+    if (!initiator.passed) return 1;
+    if (uart.calls != 1 || uart.last_address != 0x20ULL) return 2;
+    if (bus.target_transactions(generated::TargetId::UART0) != 1) return 3;
+    if (bus.total_transactions() != 1) return 4;
+
+    return 0;
+}
+''')
+        binary = temp_root / "interconnect_relocation_probe"
+        build = subprocess.run(
+            [
+                shutil.which("c++") or shutil.which("g++") or "c++",
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(temp_root),
+                str(probe),
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: relocated interconnect probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+
+        run = subprocess.run(
+            [str(binary)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: relocated interconnect probe failed with exit code "
+                + str(run.returncode) + "\\n"
+                + run.stdout + run.stderr
+            )
+
+    print("[PASS] relocated UART base routes a real TLM transaction")
+    print("[PASS] old UART address is unmapped after YAML relocation")
+
 def check_firmware_uses_generated_bases():
     source = (ROOT / "src" / "main.cpp").read_text()
     required = [
