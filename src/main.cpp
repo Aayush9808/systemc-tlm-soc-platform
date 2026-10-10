@@ -1222,11 +1222,42 @@ private:
         }
 
         if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer lower counter was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer upper counter was not reset");
+            return false;
+        }
+
+        if (!read32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
                 value) ||
             value != 0) {
+            fail("timer compare lower was not reset");
+            return false;
+        }
 
-            fail("timer compare was not reset");
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer compare upper was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer interrupt enable was not reset");
             return false;
         }
 
