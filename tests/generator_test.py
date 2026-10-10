@@ -299,6 +299,13 @@ def expect_interconnect_address_relocation():
         # Deliberately make the declared SRAM window smaller than the dummy
         # target's DMI grant to exercise interconnect-side range clamping.
         sram_range["size"] = "0x1000"
+        # Exercise a generated target range that has no handwritten socket.
+        soc_data["memory_map"].append({
+            "name": "UNWIRED",
+            "base": "0x60000000",
+            "size": "0x1000",
+            "type": "peripheral",
+        })
         save(soc_path, soc_data)
 
         uart_path = spec_dir / "uart.yaml"
@@ -407,6 +414,11 @@ struct Initiator : sc_core::sc_module {
         transact(0x40000020ULL, 0x143, tlm::TLM_ADDRESS_ERROR_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
 
+        // A generated range with no handwritten target binding must fail
+        // deterministically instead of leaving the payload incomplete.
+        transact(0x60000000ULL, 0x144, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
         // The SRAM target grants 1 MiB, but the generated map declares only
         // 4 KiB. The interconnect must clamp the system-visible DMI window.
         tlm::tlm_generic_payload dmi_request;
@@ -462,7 +474,7 @@ int sc_main(int, char**) {
 
     if (!initiator.passed) return 1;
     if (bus.target_transactions(generated::TargetId::UART0) != 3) return 2;
-    if (bus.total_transactions() != 3) return 3;
+    if (bus.total_transactions() != 4) return 3;
 
     return 0;
 }
