@@ -514,6 +514,9 @@ def check_interconnect_dmi_respects_generated_range():
         "dmi_data.set_start_address(clamped_start)",
         "dmi_data.set_end_address(clamped_end)",
         "if (clamped_start > clamped_end)",
+        "A generated map can describe a target that this handwritten",
+        "default:",
+        "tlm::TLM_ADDRESS_ERROR_RESPONSE",
     ]
     missing = [fragment for fragment in required if fragment not in source]
     if missing:
