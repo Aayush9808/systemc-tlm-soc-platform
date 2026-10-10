@@ -77,6 +77,29 @@ private:
                 tlm::TLM_OK_RESPONSE))
             failures++;
 
+        // A successful b_transport must annotate the configured target
+        // latency; this catches accidental removal of timing information.
+        {
+            unsigned char data[4] = {};
+            tlm::tlm_generic_payload trans;
+            trans.set_command(tlm::TLM_READ_COMMAND);
+            trans.set_address(0);
+            trans.set_data_ptr(data);
+            trans.set_data_length(4);
+            trans.set_streaming_width(4);
+            trans.set_byte_enable_ptr(nullptr);
+            sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+            socket->b_transport(trans, delay);
+
+            if (trans.get_response_status() == tlm::TLM_OK_RESPONSE &&
+                delay == sc_core::sc_time(10, sc_core::SC_NS)) {
+                std::cout << "[PASS] b_transport annotates 10 ns latency\n";
+            } else {
+                std::cout << "[FAIL] b_transport annotates 10 ns latency\n";
+                failures++;
+            }
+        }
+
         if (!check(
                 "unaligned address",
                 0x00000001,
