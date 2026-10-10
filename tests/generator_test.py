@@ -668,6 +668,11 @@ def main():
     )
 
     expect_failure(
+        "non-string register access",
+        lambda spec_dir: non_string_access(spec_dir),
+    )
+
+    expect_failure(
         "unaligned register offset",
         lambda spec_dir: unaligned_offset(spec_dir),
     )
@@ -739,6 +744,13 @@ def invalid_access(spec_dir):
     path = spec_dir / "uart.yaml"
     data = load(path)
     data["registers"][0]["access"] = "INVALID"
+    save(path, data)
+
+
+def non_string_access(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["access"] = ["RW"]
     save(path, data)
 
 
