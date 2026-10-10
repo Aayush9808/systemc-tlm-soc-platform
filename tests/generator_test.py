@@ -272,11 +272,17 @@ def expect_interconnect_address_relocation():
         spec_dir = temp_root / "specs"
         out_dir = temp_root / "generated"
         interconnect_dir = temp_root / "model" / "interconnect"
+        peripheral_dir = temp_root / "model" / "peripherals"
         interconnect_dir.mkdir(parents=True)
+        peripheral_dir.mkdir(parents=True)
         shutil.copytree(SOURCE_SPECS, spec_dir)
         shutil.copy2(
             ROOT / "model" / "interconnect" / "simple_interconnect.h",
             interconnect_dir / "simple_interconnect.h",
+        )
+        shutil.copy2(
+            ROOT / "model" / "peripherals" / "uart.h",
+            peripheral_dir / "uart.h",
         )
 
         soc_path = spec_dir / "soc.yaml"
@@ -287,6 +293,13 @@ def expect_interconnect_address_relocation():
         )
         uart_range["base"] = "0x50000000"
         save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(reg for reg in uart_data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        wdata["mask"] = "0xFF"
+        save(uart_path, uart_data)
 
         original_spec_dir = generate.SPEC_DIR
         original_out_dir = generate.OUT_DIR
@@ -306,6 +319,7 @@ def expect_interconnect_address_relocation():
 #include <tlm_utils/simple_initiator_socket.h>
 #include <cstdint>
 #include "model/interconnect/simple_interconnect.h"
+#include "model/peripherals/uart.h"
 
 struct DummyTarget : sc_core::sc_module {
     tlm_utils::simple_target_socket<DummyTarget> socket;
@@ -331,8 +345,17 @@ struct Initiator : sc_core::sc_module {
         SC_THREAD(run);
     }
 
-    void transact(uint64_t address, tlm::tlm_response_status expected) {
-        unsigned char data[4] = {0, 0, 0, 0};
+    void transact(
+        uint64_t address,
+        uint32_t value,
+        tlm::tlm_response_status expected
+    ) {
+        unsigned char data[4] = {
+            static_cast<unsigned char>(value & 0xFF),
+            static_cast<unsigned char>((value >> 8) & 0xFF),
+            static_cast<unsigned char>((value >> 16) & 0xFF),
+            static_cast<unsigned char>((value >> 24) & 0xFF)
+        };
         tlm::tlm_generic_payload trans;
         trans.set_command(tlm::TLM_WRITE_COMMAND);
         trans.set_address(address);
@@ -349,10 +372,19 @@ struct Initiator : sc_core::sc_module {
         passed = true;
         wait(sc_core::SC_ZERO_TIME);
 
-        transact(0x50000020ULL, tlm::TLM_OK_RESPONSE);
+        transact(0x50000000ULL, 1, tlm::TLM_OK_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
 
-        transact(0x40000020ULL, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        // WDATA was moved from 0x0C to 0x20 in the mutated YAML.
+        transact(0x50000020ULL, 0x141, tlm::TLM_OK_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // The old register offset is no longer defined by generated metadata.
+        transact(0x5000000CULL, 0x142, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // The old peripheral base is also unmapped after relocation.
+        transact(0x40000020ULL, 0x143, tlm::TLM_ADDRESS_ERROR_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
 
         sc_core::sc_stop();
@@ -361,8 +393,11 @@ struct Initiator : sc_core::sc_module {
 
 int sc_main(int, char**) {
     SimpleInterconnect bus("bus");
-    DummyTarget rom("rom"), sram("sram"), uart("uart"), gpio("gpio");
+    DummyTarget rom("rom"), sram("sram"), gpio("gpio");
     DummyTarget timer("timer"), spi("spi"), irq("irq");
+    Uart uart("uart");
+    sc_core::sc_signal<bool> uart_irq("uart_irq");
+    uart.irq(uart_irq);
     Initiator initiator("initiator");
 
     initiator.socket.bind(bus.target_socket);
@@ -377,9 +412,8 @@ int sc_main(int, char**) {
     sc_core::sc_start();
 
     if (!initiator.passed) return 1;
-    if (uart.calls != 1 || uart.last_address != 0x20ULL) return 2;
-    if (bus.target_transactions(generated::TargetId::UART0) != 1) return 3;
-    if (bus.total_transactions() != 1) return 4;
+    if (bus.target_transactions(generated::TargetId::UART0) != 2) return 2;
+    if (bus.total_transactions() != 2) return 3;
 
     return 0;
 }
@@ -416,8 +450,9 @@ int sc_main(int, char**) {
                 + run.stdout + run.stderr
             )
 
-    print("[PASS] relocated UART base routes a real TLM transaction")
-    print("[PASS] old UART address is unmapped after YAML relocation")
+    print("[PASS] relocated UART base routes real TLM transactions to the UART model")
+    print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
+    print("[PASS] old UART base is unmapped after YAML relocation")
 
 def check_firmware_uses_generated_bases():
     source = (ROOT / "src" / "main.cpp").read_text()
