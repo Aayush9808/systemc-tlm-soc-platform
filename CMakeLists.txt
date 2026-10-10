@@ -79,6 +79,11 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/generator_test.py
 )
 
+set_tests_properties(generator_validation PROPERTIES
+    ENVIRONMENT
+        "SYSTEMC_INCLUDE_DIR=${SYSTEMC_INCLUDE_DIR};SYSTEMC_LIBRARY=${SYSTEMC_LIBRARY}"
+)
+
 add_test(
     NAME tlm_demo_dmi
     COMMAND tlm_demo
