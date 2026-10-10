@@ -160,6 +160,13 @@ def expect_generated_runtime_behavior():
             if entry["name"] == "UART0"
         )
         uart_range["base"] = "0x50000000"
+        sram_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "SRAM"
+        )
+        # Deliberately make the declared SRAM window smaller than the dummy
+        # target's DMI grant to exercise interconnect-side range clamping.
+        sram_range["size"] = "0x1000"
         save(soc_path, soc_data)
 
         uart_path = spec_dir / "uart.yaml"
@@ -325,9 +332,22 @@ struct DummyTarget : sc_core::sc_module {
     tlm_utils::simple_target_socket<DummyTarget> socket;
     uint64_t last_address = UINT64_MAX;
     unsigned int calls = 0;
+    unsigned char backing[1024 * 1024] = {};
 
     SC_CTOR(DummyTarget) : socket("socket") {
         socket.register_b_transport(this, &DummyTarget::b_transport);
+        socket.register_get_direct_mem_ptr(this, &DummyTarget::get_direct_mem_ptr);
+    }
+
+    bool get_direct_mem_ptr(
+        tlm::tlm_generic_payload&,
+        tlm::tlm_dmi& dmi
+    ) {
+        dmi.set_dmi_ptr(backing);
+        dmi.set_start_address(0);
+        dmi.set_end_address(sizeof(backing) - 1);
+        dmi.allow_read_write();
+        return true;
     }
 
     void b_transport(tlm::tlm_generic_payload& trans, sc_core::sc_time&) {
@@ -386,6 +406,35 @@ struct Initiator : sc_core::sc_module {
         // The old peripheral base is also unmapped after relocation.
         transact(0x40000020ULL, 0x143, tlm::TLM_ADDRESS_ERROR_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
+
+        // The SRAM target grants 1 MiB, but the generated map declares only
+        // 4 KiB. The interconnect must clamp the system-visible DMI window.
+        tlm::tlm_generic_payload dmi_request;
+        dmi_request.set_command(tlm::TLM_READ_COMMAND);
+        dmi_request.set_address(generated::SRAM_BASE + 0x20);
+        dmi_request.set_data_length(4);
+        dmi_request.set_streaming_width(4);
+        tlm::tlm_dmi dmi;
+        if (!socket->get_direct_mem_ptr(dmi_request, dmi) ||
+            dmi.get_start_address() != generated::SRAM_BASE ||
+            dmi.get_end_address() != generated::SRAM_BASE + 0xFFF ||
+            dmi.get_dmi_ptr() != sram.backing) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
+
+        tlm::tlm_generic_payload outside_request;
+        outside_request.set_command(tlm::TLM_READ_COMMAND);
+        outside_request.set_address(generated::SRAM_BASE + 0x1000);
+        outside_request.set_data_length(4);
+        outside_request.set_streaming_width(4);
+        tlm::tlm_dmi outside_dmi;
+        if (socket->get_direct_mem_ptr(outside_request, outside_dmi)) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
 
         sc_core::sc_stop();
     }
@@ -453,6 +502,7 @@ int sc_main(int, char**) {
     print("[PASS] relocated UART base routes real TLM transactions to the UART model")
     print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
     print("[PASS] old UART base is unmapped after YAML relocation")
+    print("[PASS] DMI grant is clamped to generated SRAM range")
 
 
 def check_interconnect_dmi_respects_generated_range():
