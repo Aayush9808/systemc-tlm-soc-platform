@@ -232,15 +232,22 @@ private:
 
         tx_fifo.push_back(value8);
 
+        // This reduced model completes each transfer synchronously: the
+        // shift engine consumes the oldest TX byte immediately. Keeping the
+        // dequeue explicit preserves FIFO ordering without leaving the TX
+        // FIFO permanently full after sixteen writes.
+        const uint8_t transmitted = tx_fifo.front();
+        tx_fifo.pop_front();
+
         uint8_t received;
 
         // CFG bit 0 selects simple loopback.
         if (cfg & 0x1) {
-            received = value8;
+            received = transmitted;
         }
         else {
             received =
-                static_cast<uint8_t>(value8 ^ 0xFF);
+                static_cast<uint8_t>(transmitted ^ 0xFF);
         }
 
         if (rx_fifo.size() < FIFO_SIZE) {
