@@ -125,6 +125,75 @@ private:
                 tlm::TLM_ADDRESS_ERROR_RESPONSE))
             failures++;
 
+        // Verify DMI range, permissions, boundary rejection, and that a
+        // direct-memory write is visible through an ordinary TLM read.
+        {
+            tlm::tlm_generic_payload trans;
+            trans.set_command(tlm::TLM_READ_COMMAND);
+            trans.set_address(0x20);
+            trans.set_data_length(4);
+            trans.set_streaming_width(4);
+            trans.set_byte_enable_ptr(nullptr);
+            trans.set_dmi_allowed(true);
+
+            tlm::tlm_dmi dmi;
+            const bool available = socket->get_direct_mem_ptr(trans, dmi);
+            const bool range_ok = available &&
+                dmi.get_dmi_ptr() != nullptr &&
+                dmi.get_start_address() == 0 &&
+                dmi.get_end_address() == 1024 * 1024 - 1;
+            const bool permissions_ok = available &&
+                dmi.is_read_allowed() && dmi.is_write_allowed();
+
+            if (range_ok && permissions_ok) {
+                const uint64_t address = 0x20;
+                unsigned char* direct = dmi.get_dmi_ptr() +
+                    (address - dmi.get_start_address());
+                direct[0] = 0x78;
+                direct[1] = 0x56;
+                direct[2] = 0x34;
+                direct[3] = 0x12;
+
+                unsigned char read_data[4] = {};
+                tlm::tlm_generic_payload read_trans;
+                read_trans.set_command(tlm::TLM_READ_COMMAND);
+                read_trans.set_address(address);
+                read_trans.set_data_ptr(read_data);
+                read_trans.set_data_length(4);
+                read_trans.set_streaming_width(4);
+                read_trans.set_byte_enable_ptr(nullptr);
+                sc_core::sc_time read_delay = sc_core::SC_ZERO_TIME;
+                socket->b_transport(read_trans, read_delay);
+
+                const bool consistent =
+                    read_trans.get_response_status() == tlm::TLM_OK_RESPONSE &&
+                    read_data[0] == 0x78 && read_data[1] == 0x56 &&
+                    read_data[2] == 0x34 && read_data[3] == 0x12;
+                if (consistent) {
+                    std::cout << "[PASS] DMI direct write matches TLM read\n";
+                } else {
+                    std::cout << "[FAIL] DMI direct write matches TLM read\n";
+                    failures++;
+                }
+            } else {
+                std::cout << "[FAIL] DMI range and read/write permissions\n";
+                failures++;
+            }
+
+            tlm::tlm_generic_payload outside;
+            outside.set_command(tlm::TLM_READ_COMMAND);
+            outside.set_address(1024 * 1024);
+            outside.set_data_length(4);
+            outside.set_streaming_width(4);
+            tlm::tlm_dmi outside_dmi;
+            if (!socket->get_direct_mem_ptr(outside, outside_dmi)) {
+                std::cout << "[PASS] DMI rejects address past SRAM end\n";
+            } else {
+                std::cout << "[FAIL] DMI rejects address past SRAM end\n";
+                failures++;
+            }
+        }
+
         std::cout << "\n";
 
         if (failures == 0) {
