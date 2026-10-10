@@ -257,6 +257,15 @@ private:
             case generated::TargetId::IRQ:
                 irq_socket->b_transport(trans, delay);
                 break;
+
+            default:
+                // A generated map can describe a target that this handwritten
+                // interconnect has not wired yet. Fail deterministically rather
+                // than leaving the payload in TLM_INCOMPLETE_RESPONSE.
+                trans.set_response_status(
+                    tlm::TLM_ADDRESS_ERROR_RESPONSE
+                );
+                break;
         }
 
         trans.set_address(original_address);
