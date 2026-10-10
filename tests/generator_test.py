@@ -1,6 +1,7 @@
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -132,6 +133,124 @@ def expect_register_relocation():
             generate.SPEC_DIR = original_spec_dir
             generate.OUT_DIR = original_out_dir
 
+
+def expect_generated_runtime_behavior():
+    """
+    Compile and execute metadata regenerated from mutated YAML.
+
+    This closes the gap between checking generated text and proving that the
+    generated C++ constants/lookup helpers expose the changed contract at
+    runtime. It intentionally does not claim to execute the full SoC bus.
+    """
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for generated runtime test")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        uart_range["base"] = "0x50000000"
+        save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(reg for reg in uart_data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        wdata["reset"] = "0x1234"
+        wdata["mask"] = "0xFF"
+        save(uart_path, uart_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        probe = temp_root / "generated_contract_probe.cpp"
+        probe.write_text(r'''#include <cstdint>
+#include "soc_memory_map.h"
+#include "uart0.h"
+
+int main() {
+    using namespace generated;
+
+    if (UART0_BASE != 0x50000000ULL) return 1;
+
+    bool found_uart = false;
+    for (unsigned int i = 0; i < MEMORY_MAP_COUNT; ++i) {
+        const auto& range = MEMORY_MAP[i];
+        if (range.target == TargetId::UART0) {
+            found_uart = true;
+            if (range.base != 0x50000000ULL || range.size != 0x1000ULL)
+                return 2;
+            const uint64_t transaction_address = range.base + uart0::WDATA_OFFSET;
+            if (transaction_address != 0x50000020ULL) return 3;
+            if (transaction_address < range.base ||
+                transaction_address >= range.base + range.size)
+                return 4;
+        }
+    }
+    if (!found_uart) return 5;
+
+    const auto* reg = lookup_register(
+        uart0::REGISTERS, uart0::REGISTER_COUNT, 0x20
+    );
+    if (reg == nullptr) return 6;
+    if (reg->reset != 0x1234 || reg->mask != 0xFF) return 7;
+    if (reg->access != RegisterAccess::WO) return 8;
+    if (!register_write_allowed(*reg) || register_read_allowed(*reg)) return 9;
+    if (apply_register_mask(*reg, 0xABCD) != 0xCD) return 10;
+
+    if (lookup_register(
+            uart0::REGISTERS, uart0::REGISTER_COUNT, 0x0C) != nullptr)
+        return 11;
+
+    return 0;
+}
+''')
+        binary = temp_root / "generated_contract_probe"
+        build = subprocess.run(
+            [
+                compiler, "-std=c++17",
+                "-I", str(out_dir / "include"),
+                str(probe), "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: generated runtime probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+
+        run = subprocess.run(
+            [str(binary)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: generated runtime probe failed with exit code "
+                + str(run.returncode) + "\\n"
+                + run.stdout + run.stderr
+            )
+
+    print("[PASS] mutated YAML -> generated C++ -> compiled runtime contract")
 
 def check_firmware_uses_generated_bases():
     source = (ROOT / "src" / "main.cpp").read_text()
@@ -383,6 +502,7 @@ def main():
 
     expect_address_relocation()
     expect_register_relocation()
+    expect_generated_runtime_behavior()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
