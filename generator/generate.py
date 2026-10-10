@@ -99,7 +99,7 @@ def validate_soc(data, path):
 
         end = base + size
 
-        if end > 0x10000000000000000:
+        if end > 0xFFFFFFFFFFFFFFFF:
             raise ValueError(
                 f"{prefix}: address range overflows uint64"
             )
