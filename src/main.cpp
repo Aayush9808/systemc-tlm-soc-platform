@@ -841,7 +841,12 @@ private:
         // Exercise the documented split-counter read protocol across a
         // low-word rollover. The upper word paired with TIMER_V_LOWER must
         // come from the same sampled 64-bit value, not a later live read.
+        // Stop the timer while seeding the counter so this setup is
+        // deterministic in both timed-LT and functional-fast modes.
         if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                0) ||
+            !write32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
                 0xFFFFFFFFu) ||
             !write32(
@@ -852,7 +857,7 @@ private:
                 0) ||
             !write32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
-                0xFFFFFFFDu)) {
+                0xFFFFFFFEu)) {
             fail("timer rollover test setup failed");
             return false;
         }
@@ -866,8 +871,15 @@ private:
             return false;
         }
 
-        // Four 10 ns timer ticks cross from 0x00000000_FFFFFFFE into
-        // 0x00000001_00000002 while the captured upper half stays coherent.
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                1)) {
+            fail("timer rollover test start failed");
+            return false;
+        }
+
+        // Three 10 ns timer ticks cross from 0x00000000_FFFFFFFE into
+        // 0x00000001_00000001 while the captured upper half stays coherent.
         wait(30, sc_core::SC_NS);
 
         uint32_t coherent_upper = 0;
