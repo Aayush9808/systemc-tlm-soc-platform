@@ -664,14 +664,9 @@ private:
             return false;
         }
 
-        if (!write32(
-                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
-                claim)) {
-
-            fail("GPIO IRQ complete failed");
-            return false;
-        }
-
+        // Clear the peripheral source before completing the controller
+        // claim. If the source is still asserted at completion, it can
+        // legitimately re-pend at the interrupt controller.
         if (!write32(
                 (generated::GPIO_BASE + generated::gpio::INTR_STATE_OFFSET),
                 1)) {
@@ -680,8 +675,31 @@ private:
             return false;
         }
 
+        wait(sc_core::SC_ZERO_TIME);
+
+        if (!write32(
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
+                claim)) {
+
+            fail("GPIO IRQ complete failed");
+            return false;
+        }
+
+        wait(sc_core::SC_ZERO_TIME);
+
+        uint32_t irq_pending_after_complete = 0;
+        if (!read32(
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
+                irq_pending_after_complete) ||
+            (irq_pending_after_complete & claim) != 0 ||
+            cpu_irq.read()) {
+
+            fail("GPIO IRQ re-pended after source clear and completion");
+            return false;
+        }
+
         std::cout
-            << "GPIO rising edge -> IRQ -> claim -> complete: PASS\n";
+            << "GPIO rising edge -> IRQ -> claim -> source clear -> complete: PASS\\n";
 
         return true;
     }
