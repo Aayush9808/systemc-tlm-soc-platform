@@ -1139,9 +1139,10 @@ private:
         // Leave a valid split-counter read latch containing upper word 1.
         // Reset must invalidate that stale sample before the post-reset
         // upper-word read below returns the reset value 0.
+        uint32_t pre_reset_timer_low = 0;
         if (!read32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
-                value)) {
+                pre_reset_timer_low)) {
             fail("failed to seed timer split-read latch before reset");
             return false;
         }
