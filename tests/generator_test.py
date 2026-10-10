@@ -160,13 +160,6 @@ def expect_generated_runtime_behavior():
             if entry["name"] == "UART0"
         )
         uart_range["base"] = "0x50000000"
-        sram_range = next(
-            entry for entry in soc_data["memory_map"]
-            if entry["name"] == "SRAM"
-        )
-        # Deliberately make the declared SRAM window smaller than the dummy
-        # target's DMI grant to exercise interconnect-side range clamping.
-        sram_range["size"] = "0x1000"
         save(soc_path, soc_data)
 
         uart_path = spec_dir / "uart.yaml"
@@ -299,6 +292,13 @@ def expect_interconnect_address_relocation():
             if entry["name"] == "UART0"
         )
         uart_range["base"] = "0x50000000"
+        sram_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "SRAM"
+        )
+        # Deliberately make the declared SRAM window smaller than the dummy
+        # target's DMI grant to exercise interconnect-side range clamping.
+        sram_range["size"] = "0x1000"
         save(soc_path, soc_data)
 
         uart_path = spec_dir / "uart.yaml"
