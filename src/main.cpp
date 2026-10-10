@@ -981,6 +981,32 @@ private:
             return false;
         }
 
+        // The reduced model completes each TX transfer synchronously. More
+        // than FIFO_SIZE writes must therefore not leave the TX FIFO stuck
+        // full; RX should independently saturate at its own capacity.
+        for (uint32_t i = 0; i < 20; ++i) {
+            if (!write32(
+                    (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
+                    i)) {
+                fail("SPI repeated TX write failed");
+                return false;
+            }
+        }
+
+        if (!read32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
+                status)) {
+            fail("SPI FIFO status read failed");
+            return false;
+        }
+
+        if ((status & (1u << 0)) == 0 ||
+            (status & (1u << 2)) == 0 ||
+            (status & (1u << 3)) == 0) {
+            fail("SPI TX did not drain or RX FIFO did not saturate correctly");
+            return false;
+        }
+
         uint32_t claim = 0;
 
         if (!read32(
