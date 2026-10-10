@@ -623,6 +623,11 @@ def main():
     )
 
     expect_failure(
+        "memory range endpoint overflows uint64",
+        lambda spec_dir: address_range_overflow(spec_dir),
+    )
+
+    expect_failure(
         "invalid register access",
         lambda spec_dir: invalid_access(spec_dir),
     )
@@ -670,6 +675,7 @@ def main():
     expect_address_relocation()
     expect_register_relocation()
     expect_generated_runtime_behavior()
+    expect_interconnect_address_relocation()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
@@ -683,6 +689,14 @@ def overlap(spec_dir):
     path = spec_dir / "soc.yaml"
     data = load(path)
     data["memory_map"][1]["base"] = data["memory_map"][0]["base"]
+    save(path, data)
+
+
+def address_range_overflow(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["base"] = "0xFFFFFFFFFFFFFFFF"
+    data["memory_map"][0]["size"] = 1
     save(path, data)
 
 
