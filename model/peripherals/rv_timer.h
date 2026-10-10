@@ -442,8 +442,11 @@ private:
 
         uint64_t step = get_step();
 
+        // Avoid overflow in remaining + step - 1 when the compare
+        // value is close to UINT64_MAX.
         uint64_t ticks =
-            (remaining + step - 1) / step;
+            remaining / step +
+            (remaining % step != 0 ? 1ULL : 0ULL);
 
         double tick_ns =
             10.0 *
