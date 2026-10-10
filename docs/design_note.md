@@ -130,7 +130,7 @@ This keeps interrupt behavior event-driven instead of using host wall-clock poll
 
 ## 9. DMI
 
-SRAM grants DMI over its memory. The interconnect translates the DMI target-local range back into the system address map.
+SRAM grants DMI over its memory. The interconnect translates the DMI target-local range back into the system address map and clamps the advertised DMI window to the SRAM range declared by the generated memory map. This prevents a target's broader local DMI grant from exposing addresses outside the firmware-visible SRAM mapping.
 
 The standalone TLM/DMI demonstration verifies that a direct DMI write is visible through a later TLM read. The benchmark also compares repeated TLM accesses with direct DMI accesses.
 
