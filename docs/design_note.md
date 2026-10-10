@@ -104,6 +104,8 @@ It generates memory-map constants, register metadata, dispatch helpers, software
 
 Generated code is kept separate from handwritten model behavior. Static metadata and register offsets are generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten. Generated reset constants are consumed by peripheral and IRQ state initialization/reset paths. All register-backed peripheral and IRQ targets look up the generated metadata before accepting a transaction: unknown offsets are rejected, RO/WO access rules are enforced, and write values are masked according to YAML. W1C behavior remains implemented in each target's state-transition logic and is covered by integration checks.
 
+The interconnect's address-range selection is data-driven, and the regression suite compiles the real interconnect against a test-generated map to prove that relocating UART0 in YAML routes a TLM transaction at the new base to the UART socket with a target-local offset; the old address becomes unmapped. The socket inventory and `TargetId` dispatch switch are still handwritten for the seven supported targets. Therefore changing an existing target's base/size is schema-driven, but introducing a brand-new target still requires adding its socket, binding and dispatch case in C++.
+
 The generator also has a --check mode that generates into a temporary directory and compares the result with committed generated output, so stale generated files are detected without modifying the repository.
 
 ## 7. Peripheral and host behavior
