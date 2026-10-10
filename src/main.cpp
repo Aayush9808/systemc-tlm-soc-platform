@@ -838,6 +838,59 @@ private:
         std::cout
             << "Timer compare -> IRQ -> claim -> clear -> complete: PASS\n";
 
+        // Exercise the documented split-counter read protocol across a
+        // low-word rollover. The upper word paired with TIMER_V_LOWER must
+        // come from the same sampled 64-bit value, not a later live read.
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                0xFFFFFFFEu)) {
+            fail("timer rollover test setup failed");
+            return false;
+        }
+
+        uint32_t sampled_low = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                sampled_low) ||
+            sampled_low != 0xFFFFFFFEu) {
+            fail("timer rollover test did not capture expected low word");
+            return false;
+        }
+
+        // Four 10 ns timer ticks cross from 0x00000000_FFFFFFFE into
+        // 0x00000001_00000002 while the captured upper half stays coherent.
+        wait(30, sc_core::SC_NS);
+
+        uint32_t coherent_upper = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                coherent_upper) ||
+            coherent_upper != 0) {
+            fail("timer split read returned incoherent upper word");
+            return false;
+        }
+
+        uint32_t live_upper = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                live_upper) ||
+            live_upper != 1) {
+            fail("timer counter did not roll over to upper word 1");
+            return false;
+        }
+
+        std::cout
+            << "Timer split-read coherency across 32-bit rollover: PASS\n";
+
         return true;
     }
 
