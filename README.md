@@ -114,7 +114,7 @@ specs/soc.yaml is the memory-map source of truth. Device YAML files define regis
 
 The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, overlapping memory ranges and uint64 address overflow.
 
-Generated output is kept under generated/. Handwritten behavioral models remain under model/.
+Generated output is kept under generated/. Handwritten behavioral models remain under model/. Existing-target base/size relocation is covered through the real TLM interconnect; adding a new target still requires a C++ socket, binding and dispatch case.
 
 ## Reproducible submission sequence
 
