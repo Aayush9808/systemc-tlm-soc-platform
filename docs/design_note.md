@@ -114,7 +114,7 @@ UART provides control/status/data/FIFO/interrupt registers, TX host-console outp
 
 GPIO provides input/output/output-enable state, direct and masked writes, rising/falling edge configuration and interrupt state. Output changes can be observed through the model callback.
 
-The timer exposes a 64-bit value and compare through 32-bit registers. A lower-half read captures a coherent sample and the following upper-half read returns the matching upper half.
+The timer exposes a 64-bit value and compare through 32-bit registers. A lower-half read captures a coherent sample and the following upper-half read returns the matching upper half. The integration regression seeds the counter near the 32-bit boundary, captures the lower half, advances simulated time across rollover, and checks both the latched upper half and the subsequent live upper half. Reset verification also checks both counter halves, both compare halves, interrupt enable/state, and control/configuration registers.
 
 SPI provides reduced control/config/status/TX/RX FIFO behavior. Configuration affects the modeled exchange and RX availability can raise an interrupt. Full flash/TPM functionality is intentionally outside the reduced model.
 
