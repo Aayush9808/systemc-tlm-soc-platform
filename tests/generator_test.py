@@ -412,8 +412,8 @@ int sc_main(int, char**) {
     sc_core::sc_start();
 
     if (!initiator.passed) return 1;
-    if (bus.target_transactions(generated::TargetId::UART0) != 2) return 2;
-    if (bus.total_transactions() != 2) return 3;
+    if (bus.target_transactions(generated::TargetId::UART0) != 3) return 2;
+    if (bus.total_transactions() != 3) return 3;
 
     return 0;
 }
