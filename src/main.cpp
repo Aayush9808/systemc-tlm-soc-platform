@@ -852,7 +852,7 @@ private:
                 0) ||
             !write32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
-                0xFFFFFFFEu)) {
+                0xFFFFFFFDu)) {
             fail("timer rollover test setup failed");
             return false;
         }
