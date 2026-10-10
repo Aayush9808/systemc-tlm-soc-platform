@@ -207,7 +207,7 @@ def validate_device(data, path):
                 f"is not 4-byte aligned"
             )
 
-        if access not in VALID_ACCESS:
+        if not isinstance(access, str) or access not in VALID_ACCESS:
             raise ValueError(
                 f"{prefix}: invalid access '{access}'. "
                 f"Expected one of {sorted(VALID_ACCESS)}"
