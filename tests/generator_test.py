@@ -454,6 +454,25 @@ int sc_main(int, char**) {
     print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
     print("[PASS] old UART base is unmapped after YAML relocation")
 
+
+def check_interconnect_dmi_respects_generated_range():
+    source = (ROOT / "model" / "interconnect" / "simple_interconnect.h").read_text()
+    required = [
+        "const uint64_t mapped_start = range->base;",
+        "range->base + range->size - 1",
+        "translated_end > mapped_end",
+        "dmi_data.set_start_address(clamped_start)",
+        "dmi_data.set_end_address(clamped_end)",
+        "if (clamped_start > clamped_end)",
+    ]
+    missing = [fragment for fragment in required if fragment not in source]
+    if missing:
+        raise SystemExit(
+            "FAIL: interconnect does not clamp DMI to the generated SRAM range: "
+            + ", ".join(missing)
+        )
+    print("[PASS] interconnect clamps advertised DMI range to generated map")
+
 def check_firmware_uses_generated_bases():
     source = (ROOT / "src" / "main.cpp").read_text()
     required = [
@@ -716,6 +735,7 @@ def main():
     expect_register_relocation()
     expect_generated_runtime_behavior()
     expect_interconnect_address_relocation()
+    check_interconnect_dmi_respects_generated_range()
     check_firmware_uses_generated_bases()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
