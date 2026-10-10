@@ -352,15 +352,41 @@ private:
             return false;
         }
 
-        dmi_data.set_start_address(
-            dmi_data.get_start_address()
-            + range->base
-        );
+        const uint64_t translated_start =
+            dmi_data.get_start_address() + range->base;
+        const uint64_t translated_end =
+            dmi_data.get_end_address() + range->base;
+        const uint64_t mapped_start = range->base;
+        const uint64_t mapped_end =
+            range->base + range->size - 1;
 
-        dmi_data.set_end_address(
-            dmi_data.get_end_address()
-            + range->base
-        );
+        // A target may expose a larger DMI window than the range declared
+        // in the generated map. Never advertise direct access beyond that
+        // firmware-visible mapping.
+        const uint64_t clamped_start =
+            translated_start < mapped_start
+                ? mapped_start
+                : translated_start;
+        const uint64_t clamped_end =
+            translated_end > mapped_end
+                ? mapped_end
+                : translated_end;
+
+        if (clamped_start > clamped_end) {
+            return false;
+        }
+
+        // DMI's pointer corresponds to start_address, so keep the pointer
+        // consistent if the lower bound ever needs clamping.
+        if (clamped_start > translated_start) {
+            dmi_data.set_dmi_ptr(
+                dmi_data.get_dmi_ptr()
+                + (clamped_start - translated_start)
+            );
+        }
+
+        dmi_data.set_start_address(clamped_start);
+        dmi_data.set_end_address(clamped_end);
 
         return true;
     }
