@@ -1095,9 +1095,15 @@ private:
 
         if (!write32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
-                100)) {
+                100) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                2) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                1)) {
 
-            fail("failed to create timer compare state");
+            fail("failed to create timer compare/counter reset state");
             return false;
         }
 
@@ -1129,6 +1135,16 @@ private:
             100,
             sc_core::SC_NS
         );
+
+        // Leave a valid split-counter read latch containing upper word 1.
+        // Reset must invalidate that stale sample before the post-reset
+        // upper-word read below returns the reset value 0.
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                value)) {
+            fail("failed to seed timer split-read latch before reset");
+            return false;
+        }
 
         sc_core::sc_time reset_time =
             sc_core::sc_time_stamp();
@@ -1245,7 +1261,7 @@ private:
                 (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
                 value) ||
             value != 0) {
-            fail("timer upper counter was not reset");
+            fail("timer upper counter or stale read latch was not reset");
             return false;
         }
 
