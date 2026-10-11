@@ -105,6 +105,7 @@ The TLM policy test covers valid access, unaligned access, invalid length, inval
 
     ./build/soc_bench 1000000
     ./build/soc_bench 1000000 --quantum-ns 100
+    ./build/soc_bench 1000000 --dmi --quantum-ns 100
     ./build/soc_bench 5000 --trace
 
 Historical local macOS measurements:
@@ -112,7 +113,7 @@ Historical local macOS measurements:
 - Separate 1M-operation DMI experiment: approximately 253.6x speedup over the corresponding TLM workload.
 - 5,000-iteration trace experiment: approximately 4.57x host-runtime overhead with tracing enabled.
 
-Current Release Linux CI measurement (Ubuntu 24.04.5, GCC 13.3.0, SystemC 2.3.4, AMD EPYC 9V74 runner): 2,006,000 bus transactions in 0.279942 s, 7.166 million transactions/s and 24,072 us simulated time. The paired 100 ns quantum-keeper experiment measured 0.286907 s baseline vs 0.122872 s quantum mode (~2.33x throughput), reducing synchronization count from 2,006,000 to 240,720 while preserving simulated time and checksum. Host results vary by runner; see docs/benchmark_report.md for the exact commands and evidence.
+Current Release Linux CI measurement (Ubuntu 24.04.5, GCC 13.3.0, SystemC 2.3.4, AMD EPYC 9V74 runner): 2,006,000 bus transactions in 0.279942 s, 7.166 million transactions/s and 24,072 us simulated time. The paired 100 ns quantum-keeper experiment measured 0.286907 s baseline vs 0.122872 s quantum mode (~2.33x throughput), reducing synchronization count from 2,006,000 to 240,720 while preserving simulated time and checksum. CI also compares a `--dmi --quantum-ns 100` SRAM path against quantum TLM transport, checking data checksum, operation counts, reduced bus traffic and throughput. Host results vary by runner; see docs/benchmark_report.md for the exact commands and evidence.
 
 ## Timing
 
