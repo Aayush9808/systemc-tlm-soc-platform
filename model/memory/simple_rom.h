@@ -6,6 +6,10 @@
 
 #include <cstdint>
 #include <vector>
+#include <algorithm>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 
 class SimpleRom : public sc_core::sc_module {
 public:
@@ -13,13 +17,14 @@ public:
 
     SimpleRom(
         sc_core::sc_module_name name,
-        std::size_t size = 64 * 1024
+        std::size_t size = 64 * 1024,
+        const std::string& image_path = std::string()
     )
         : sc_core::sc_module(name),
           socket("socket"),
           data(size, 0) {
 
-        load_firmware_image();
+        load_firmware_image(image_path);
 
         socket.register_b_transport(
             this,
@@ -30,22 +35,39 @@ public:
 private:
     std::vector<std::uint8_t> data;
 
-    void load_firmware_image() {
-        // Deterministic firmware/data value at ROM address 0.
-        uint32_t value = 0x11223344;
+    void load_firmware_image(const std::string& image_path) {
+        std::fill(data.begin(), data.end(), static_cast<std::uint8_t>(0));
 
-        data[0] = value & 0xff;
-        data[1] = (value >> 8) & 0xff;
-        data[2] = (value >> 16) & 0xff;
-        data[3] = (value >> 24) & 0xff;
+        if (image_path.empty()) {
+            // Deterministic built-in firmware/data table used by default.
+            const std::uint32_t values[] = {0x11223344, 0xAABBCCDD};
+            for (std::size_t word = 0; word < 2; ++word) {
+                for (std::size_t byte = 0; byte < 4; ++byte) {
+                    data[word * 4 + byte] =
+                        static_cast<std::uint8_t>((values[word] >> (byte * 8)) & 0xFF);
+                }
+            }
+            return;
+        }
 
-        // More test data for future firmware scenarios.
-        uint32_t value2 = 0xAABBCCDD;
+        std::ifstream image(image_path, std::ios::binary | std::ios::ate);
+        if (!image) {
+            throw std::runtime_error("cannot open ROM image: " + image_path);
+        }
 
-        data[4] = value2 & 0xff;
-        data[5] = (value2 >> 8) & 0xff;
-        data[6] = (value2 >> 16) & 0xff;
-        data[7] = (value2 >> 24) & 0xff;
+        const std::streamoff image_size = image.tellg();
+        if (image_size < 0 ||
+            static_cast<std::uint64_t>(image_size) > data.size()) {
+            throw std::runtime_error("ROM image exceeds configured ROM size: " + image_path);
+        }
+
+        image.seekg(0, std::ios::beg);
+        if (image_size > 0 &&
+            !image.read(
+                reinterpret_cast<char*>(data.data()),
+                static_cast<std::streamsize>(image_size))) {
+            throw std::runtime_error("failed to read ROM image: " + image_path);
+        }
     }
 
     void b_transport(
