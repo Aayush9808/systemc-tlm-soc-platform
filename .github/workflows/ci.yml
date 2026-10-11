@@ -20,11 +20,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake g++ libsystemc-dev python3 python3-yaml
 
+      - name: Report toolchain and host
+        run: |
+          g++ --version
+          cmake --version
+          dpkg-query -W libsystemc-dev
+          lscpu | grep -E 'Architecture|Model name|CPU\\(s\\)'
+
       - name: Validate generated artifacts
         run: python3 generator/generate.py --check
 
       - name: Configure
-        run: cmake -S . -B build -DSYSTEMC_ROOT=/usr
+        run: cmake -S . -B build -DSYSTEMC_ROOT=/usr -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --parallel 2
