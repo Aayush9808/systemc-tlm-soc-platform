@@ -618,6 +618,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
                     str(binary), "--scenario", "boot", "--timing", timing,
                     "--rom-image", str(rom_image),
                     "--sram-latency-ns", "3",
+                    "--peripheral-latency-ns", "7",
                 ],
                 capture_output=True,
                 text=True,
