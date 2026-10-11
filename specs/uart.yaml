@@ -10,6 +10,15 @@ registers:
     access: RW
     reset: 0x00000000
     mask: 0x00000003
+    fields:
+      - name: TX
+        bit_offset: 0
+        bit_width: 1
+        access: RW
+      - name: RX
+        bit_offset: 1
+        bit_width: 1
+        access: RW
 
   - name: STATUS
     offset: 0x04
