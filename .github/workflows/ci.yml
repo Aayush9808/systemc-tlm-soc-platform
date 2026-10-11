@@ -56,7 +56,7 @@ jobs:
           quantum = Path("/tmp/soc-bench-quantum.log").read_text()
 
           def value(output, label):
-              match = re.search(rf"^{re.escape(label)}:\\s*(.+)$", output, re.MULTILINE)
+              match = re.search(rf"^{re.escape(label)}:\s*(.+)$", output, re.MULTILINE)
               if not match:
                   raise SystemExit(f"missing benchmark metric: {label}")
               return match.group(1).strip()
