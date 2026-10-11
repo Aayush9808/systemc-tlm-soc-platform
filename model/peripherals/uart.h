@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "../../generated/include/uart0.h"
+#include "../../generated/include/soc_memory_map.h"
 #include <deque>
 #include <iostream>
 
@@ -127,7 +128,10 @@ private:
             return;
         }
 
-        if (address >= 0x1000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::UART0
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
