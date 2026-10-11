@@ -103,14 +103,15 @@ The TLM policy test covers valid access, unaligned access, invalid length, inval
 ## Performance
 
     ./build/soc_bench 1000000
+    ./build/soc_bench 1000000 --quantum-ns 100
     ./build/soc_bench 5000 --trace
 
-Recorded measurements:
-- Mixed 1M-iteration run: 2,006,000 bus transactions, 0.268628 s host runtime, 7,467,578 transactions/s, 20,060 us simulated time.
+Historical local macOS measurements:
+- Mixed 1M-iteration run: 2,006,000 bus transactions, 0.268628 s host runtime, 7,467,578 transactions/s, 20,060 us simulated time (before the explicit interconnect latency was added).
 - Separate 1M-operation DMI experiment: approximately 253.6x speedup over the corresponding TLM workload.
 - 5,000-iteration trace experiment: approximately 4.57x host-runtime overhead with tracing enabled.
 
-See docs/benchmark_report.md.
+Current Release Linux CI measurement (Ubuntu 24.04.5, GCC 13.3.0, SystemC 2.3.4, AMD EPYC 9V45 runner): 2,006,000 bus transactions in 0.176150 s, 11.388 million transactions/s and 24,072 us simulated time. The paired 100 ns quantum-keeper experiment measured 0.172798 s baseline vs 0.078142 s quantum mode (~2.21x throughput), reducing synchronization count from 2,006,000 to 240,720 while preserving simulated time and checksum. Host results vary by runner; see docs/benchmark_report.md for the exact commands and evidence.
 
 ## Timing
 
