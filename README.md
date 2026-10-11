@@ -1,6 +1,6 @@
 # SystemC / TLM-2.0 SoC Platform
 
-A reusable virtual SoC platform built with SystemC 3.0.2 and TLM-2.0.
+A reusable virtual SoC platform built and CI-tested with SystemC 2.3.4 and 3.0.2 and TLM-2.0.
 
 ## Architecture
 
@@ -21,7 +21,7 @@ A reusable virtual SoC platform built with SystemC 3.0.2 and TLM-2.0.
                      |
                    CPU IRQ
 
-All firmware-visible accesses go through the memory-mapped interconnect. The interconnect uses the generated memory map, validates the complete address range, translates to target-local addresses, and forwards TLM transactions.
+All firmware-visible accesses go through the memory-mapped interconnect. The interconnect uses the generated memory map, validates the complete address range, translates to target-local addresses, annotates traversal latency and serializes overlapping annotated arrivals with a fixed-latency contention approximation.
 
 ## Implemented SoC
 
@@ -58,7 +58,7 @@ All firmware-visible accesses go through the memory-mapped interconnect. The int
 - C++17 compiler
 - CMake 3.20+
 - Python 3.10+
-- SystemC 3.0.2
+- SystemC 2.3.4 or SystemC 3.x
 - PyYAML
 
 Example:
@@ -70,6 +70,12 @@ Example:
 If SystemC is installed outside the Homebrew default:
 
     cmake -S . -B build -DSYSTEMC_ROOT=/path/to/systemc
+
+## Verified toolchains
+
+- GitHub Actions Linux CI: Ubuntu 24.04.5, GNU C++ 13.3.0, SystemC 2.3.4.
+- Local development environment: macOS arm64, Apple Clang 21.0.0, SystemC 3.0.2.
+- C++ standard: C++17.
 
 ## Build and generate
 
