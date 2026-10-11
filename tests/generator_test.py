@@ -283,7 +283,8 @@ def expect_register_addition():
         verification = (out_dir / "docs" / "uart0_verification.md").read_text()
         checks = [
             ("TEST_REG_OFFSET = 0x00000020", cpp_header),
-            ("TEST_REG", cpp_source),
+            ('    {"TEST_REG", 0x00000020, 0x000000A5, 0x000000FF, RegisterAccess::RW},', cpp_header),
+            ("const RegisterMetadata* find_register(", cpp_source),
             ("TEST_REG_RESET = 0x000000A5", cpp_header),
             ("TEST_REG_PAYLOAD_MASK = 0x00000070", cpp_header),
             ("UART0_TEST_REG_OFFSET 0x00000020", sw_header),
