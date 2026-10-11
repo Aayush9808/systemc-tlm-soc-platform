@@ -517,6 +517,111 @@ int sc_main(int, char**) {
     print("[PASS] DMI grant is clamped to generated SRAM range")
 
 
+def expect_full_firmware_scenario_with_relocated_uart():
+    """
+    Compile the real SoC against a mutated YAML map/register schema and run
+    the full firmware-like scenario in both timing modes. This proves that a
+    relocated UART and register offset flow through generation, routing,
+    peripheral behavior, and the scenario's unmapped-address regression.
+    """
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit(
+            "FAIL: CMake must pass SystemC paths to the relocated firmware test"
+        )
+
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for relocated firmware test")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        shutil.copytree(ROOT / "model", temp_root / "model")
+        shutil.copytree(ROOT / "src", temp_root / "src")
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        # This deliberately collides with the old hard-coded negative-test
+        # address, which must now be selected from the generated map.
+        uart_range["base"] = "0x50000000"
+        save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(
+            reg for reg in uart_data["registers"] if reg["name"] == "WDATA"
+        )
+        wdata["offset"] = "0x20"
+        save(uart_path, uart_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        binary = temp_root / "soc_sim_relocated"
+        generated_sources = sorted((out_dir / "src").glob("*.cpp"))
+        build = subprocess.run(
+            [
+                compiler,
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(out_dir / "include"),
+                str(temp_root / "src" / "main.cpp"),
+                *[str(path) for path in generated_sources],
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: full SoC did not compile with relocated YAML:\\n"
+                + build.stdout + build.stderr
+            )
+
+        for timing in ("timed-lt", "functional-fast"):
+            run = subprocess.run(
+                [str(binary), "--scenario", "boot", "--timing", timing],
+                capture_output=True,
+                text=True,
+            )
+            output = run.stdout + run.stderr
+            if run.returncode != 0:
+                raise SystemExit(
+                    f"FAIL: relocated full firmware scenario failed in {timing}:\\n"
+                    + output
+                )
+            if "All required firmware checks: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: relocated firmware scenario did not report PASS in {timing}:\\n"
+                    + output
+                )
+            if "Unmapped address 0x80000000 rejected: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: unmapped-address regression did not use the generated map in {timing}:\\n"
+                    + output
+                )
+
+    print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
+    print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
+
+
 def check_interconnect_dmi_respects_generated_range():
     source = (ROOT / "model" / "interconnect" / "simple_interconnect.h").read_text()
     required = [
