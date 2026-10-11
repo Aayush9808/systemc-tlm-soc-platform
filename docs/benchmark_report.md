@@ -90,8 +90,8 @@ The benchmark initiator supports both per-transaction synchronization and a TLM 
 | Metric | Per-transaction baseline | Quantum keeper (100 ns) |
 |---|---:|---:|
 | Bus transactions | 2,006,000 | 2,006,000 |
-| Host runtime | 0.296112 s | 0.136040 s |
-| Throughput | 6,774,456 transactions/s | 14,745,662 transactions/s |
+| Host runtime | 0.296457 s | 0.135665 s |
+| Throughput | 6,766,578 operations/s | 14,786,380 operations/s |
 | Simulated time | 24,072 us | 24,072 us |
 | Synchronization count | 2,006,000 | 240,720 |
 | Checksum | 0xe0380 | 0xe0380 |
