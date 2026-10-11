@@ -53,7 +53,12 @@ public:
         const std::string& sram_image,
         uint64_t sram_read_latency_ns,
         uint64_t sram_write_latency_ns,
-        uint64_t peripheral_latency_ns,
+        uint64_t rom_latency_ns,
+        uint64_t uart_latency_ns,
+        uint64_t gpio_latency_ns,
+        uint64_t timer_latency_ns,
+        uint64_t spi_latency_ns,
+        uint64_t irq_latency_ns,
         uint64_t interconnect_latency_ns)
         : sc_core::sc_module(name),
           socket("socket"),
@@ -68,12 +73,12 @@ public:
               sc_core::sc_time(static_cast<double>(sram_read_latency_ns), sc_core::SC_NS),
               sc_core::sc_time(static_cast<double>(sram_write_latency_ns), sc_core::SC_NS),
               sram_image),
-          rom("rom", generated::ROM_SIZE, rom_image),
-          uart("uart", sc_core::sc_time(static_cast<double>(peripheral_latency_ns), sc_core::SC_NS)),
-          gpio("gpio", sc_core::sc_time(static_cast<double>(peripheral_latency_ns), sc_core::SC_NS)),
-          timer("timer", sc_core::sc_time(static_cast<double>(peripheral_latency_ns), sc_core::SC_NS)),
-          spi("spi", sc_core::sc_time(static_cast<double>(peripheral_latency_ns), sc_core::SC_NS)),
-          irq("irq", sc_core::sc_time(static_cast<double>(peripheral_latency_ns), sc_core::SC_NS)),
+          rom("rom", generated::ROM_SIZE, rom_image, sc_core::sc_time(static_cast<double>(rom_latency_ns), sc_core::SC_NS)),
+          uart("uart", sc_core::sc_time(static_cast<double>(uart_latency_ns), sc_core::SC_NS)),
+          gpio("gpio", sc_core::sc_time(static_cast<double>(gpio_latency_ns), sc_core::SC_NS)),
+          timer("timer", sc_core::sc_time(static_cast<double>(timer_latency_ns), sc_core::SC_NS)),
+          spi("spi", sc_core::sc_time(static_cast<double>(spi_latency_ns), sc_core::SC_NS)),
+          irq("irq", sc_core::sc_time(static_cast<double>(irq_latency_ns), sc_core::SC_NS)),
           bus("bus", sc_core::sc_time(static_cast<double>(interconnect_latency_ns), sc_core::SC_NS)),
           functional_fast_(functional_fast),
           sram_image_(sram_image) {
@@ -1706,7 +1711,18 @@ int sc_main(
     std::string sram_image;
     uint64_t sram_read_latency_ns = 10;
     uint64_t sram_write_latency_ns = 10;
+    uint64_t rom_latency_ns = 10;
     uint64_t peripheral_latency_ns = 10;
+    uint64_t uart_latency_ns = 10;
+    uint64_t gpio_latency_ns = 10;
+    uint64_t timer_latency_ns = 10;
+    uint64_t spi_latency_ns = 10;
+    uint64_t irq_latency_ns = 10;
+    bool uart_latency_override = false;
+    bool gpio_latency_override = false;
+    bool timer_latency_override = false;
+    bool spi_latency_override = false;
+    bool irq_latency_override = false;
     uint64_t interconnect_latency_ns = 2;
 
     for (int i = 1; i < argc; ++i) {
@@ -1728,6 +1744,17 @@ int sc_main(
                  i + 1 < argc) {
 
             rom_image = argv[++i];
+        }
+        else if (arg == "--rom-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                rom_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --rom-latency-ns value\\n";
+                return 1;
+            }
         }
         else if (arg == "--sram-image" &&
                  i + 1 < argc) {
@@ -1790,6 +1817,26 @@ int sc_main(
                 return 1;
             }
         }
+        else if (arg == "--uart-latency-ns" && i + 1 < argc) {
+            try { uart_latency_ns = std::stoull(argv[++i]); uart_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --uart-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--gpio-latency-ns" && i + 1 < argc) {
+            try { gpio_latency_ns = std::stoull(argv[++i]); gpio_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --gpio-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--timer-latency-ns" && i + 1 < argc) {
+            try { timer_latency_ns = std::stoull(argv[++i]); timer_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --timer-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--spi-latency-ns" && i + 1 < argc) {
+            try { spi_latency_ns = std::stoull(argv[++i]); spi_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --spi-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--irq-latency-ns" && i + 1 < argc) {
+            try { irq_latency_ns = std::stoull(argv[++i]); irq_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --irq-latency-ns value\\n"; return 1; }
+        }
     }
 
     if (scenario != "boot") {
@@ -1834,6 +1881,12 @@ int sc_main(
         << timing
         << "\n";
 
+    if (!uart_latency_override) uart_latency_ns = peripheral_latency_ns;
+    if (!gpio_latency_override) gpio_latency_ns = peripheral_latency_ns;
+    if (!timer_latency_override) timer_latency_ns = peripheral_latency_ns;
+    if (!spi_latency_override) spi_latency_ns = peripheral_latency_ns;
+    if (!irq_latency_override) irq_latency_ns = peripheral_latency_ns;
+
     SocSim soc(
         "soc",
         functional_fast,
@@ -1841,7 +1894,12 @@ int sc_main(
         sram_image,
         sram_read_latency_ns,
         sram_write_latency_ns,
-        peripheral_latency_ns,
+        rom_latency_ns,
+        uart_latency_ns,
+        gpio_latency_ns,
+        timer_latency_ns,
+        spi_latency_ns,
+        irq_latency_ns,
         interconnect_latency_ns
     );
 
