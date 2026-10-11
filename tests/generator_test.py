@@ -840,6 +840,42 @@ def check_irq_w1c_metadata():
     print("[PASS] IRQ PENDING W1C metadata matches the model behavior")
 
 
+def expect_field_generation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        out_dir = temp_root / "generated"
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = SOURCE_SPECS
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        header = (out_dir / "include" / "uart0.h").read_text()
+        software = (out_dir / "sw" / "uart0.h").read_text()
+        required_header = [
+            "CTRL_TX_BIT_OFFSET = 0",
+            "CTRL_TX_BIT_WIDTH = 1",
+            "CTRL_TX_MASK = 0x00000001",
+            "CTRL_RX_BIT_OFFSET = 1",
+            "CTRL_RX_BIT_WIDTH = 1",
+            "CTRL_RX_MASK = 0x00000002",
+        ]
+        required_software = [
+            "UART0_CTRL_TX_MASK 0x00000001",
+            "UART0_CTRL_RX_MASK 0x00000002",
+        ]
+        if any(fragment not in header for fragment in required_header):
+            raise SystemExit("FAIL: generated C++ field masks do not match UART YAML")
+        if any(fragment not in software for fragment in required_software):
+            raise SystemExit("FAIL: generated software field masks do not match UART YAML")
+    print("[PASS] UART YAML fields generate C++ and software masks")
+
+
 def main():
     expect_failure(
         "overlapping memory ranges",
@@ -900,9 +936,14 @@ def main():
         "out-of-range register mask",
         lambda spec_dir: invalid_mask(spec_dir),
     )
+    expect_failure(
+        "field exceeds register width",
+        lambda spec_dir: invalid_field_range(spec_dir),
+    )
 
     expect_address_relocation()
     expect_register_relocation()
+    expect_field_generation()
     expect_generated_runtime_behavior()
     expect_interconnect_address_relocation()
     check_interconnect_dmi_respects_generated_range()
@@ -990,6 +1031,19 @@ def invalid_reset(spec_dir):
     path = spec_dir / "uart.yaml"
     data = load(path)
     data["registers"][0]["reset"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_field_range(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"] = [{
+        "name": "TX",
+        "bit_offset": 31,
+        "bit_width": 2,
+        "access": "RW",
+    }]
     save(path, data)
 
 
