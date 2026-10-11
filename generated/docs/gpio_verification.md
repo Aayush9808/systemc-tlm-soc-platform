@@ -16,7 +16,6 @@ Generated from the device schema.
 - `INTR_RISE` offset=`0x00000024` access=`RW` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `INTR_FALL` offset=`0x00000028` access=`RW` reset=`0x00000000` mask=`0xFFFFFFFF`
 
-
 ## Generated test vectors
 
 | Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |
