@@ -93,9 +93,7 @@ private:
         uint32_t offset =
             static_cast<uint32_t>(address);
 
-        const auto* register_metadata = generated::lookup_register(
-            generated::spi_device::REGISTERS,
-            generated::spi_device::REGISTER_COUNT,
+        const auto* register_metadata = generated::spi_device::find_register(
             static_cast<uint32_t>(address)
         );
 
@@ -105,9 +103,9 @@ private:
         }
 
         if ((trans.is_read() &&
-             !generated::register_read_allowed(*register_metadata)) ||
+             !generated::spi_device::allows_read(*register_metadata)) ||
             (trans.is_write() &&
-             !generated::register_write_allowed(*register_metadata))) {
+             !generated::spi_device::allows_write(*register_metadata))) {
             trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
             return;
         }
