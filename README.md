@@ -16,7 +16,7 @@ A reusable virtual SoC platform built and CI-tested with SystemC 2.3.4 and 3.0.2
         ROM  SRAM UART GPIO
                   |    |
                 Timer SPI
-                  \    /
+                  \\    /
                 IRQ Controller
                      |
                    CPU IRQ
@@ -67,16 +67,7 @@ Example:
     source .venv/bin/activate
     pip install -r requirements.txt
 
-If SystemC is installed outside the Homebrew default:
-
-    cmake -S . -B build -DSYSTEMC_ROOT=/path/to/systemc
-
-## Verified toolchains
-
-- GitHub Actions Linux CI: Ubuntu 24.04.5, GNU C++ 13.3.0, SystemC 2.3.4.
-- GitHub Actions macOS CI: Homebrew SystemC 3.x, Clang; builds, runs CTest, exercises both timing modes, and smoke-tests all three million-iteration benchmark modes.
-- Local development environment: macOS arm64, Apple Clang 21.0.0, SystemC 3.0.2.
-- C++ standard: C++17.
+CMake searches the normal platform paths, common Homebrew SystemC prefixes, and the `SYSTEMC_HOME` environment variable. If SystemC is installed in a non-standard location, pass its installation prefix explicitly.
 
 ## Build and generate
 
@@ -84,7 +75,11 @@ First verify the committed generated artifacts:
 
     python3 generator/generate.py --check
 
-Configure with the installed SystemC prefix:
+Configure the build:
+
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+If automatic discovery does not find SystemC, provide its prefix:
 
 - Ubuntu / CI-style installation:
 
@@ -174,6 +169,7 @@ The CPU side is a scripted TLM initiator rather than a full RISC-V ISS. SPI and 
 - docs/design_note.md — architecture, timing, schema, IRQ, DMI, reset, verification and scaling decisions.
 - docs/benchmark_report.md — measured performance, DMI comparison and trace overhead.
 - docs/requirements_traceability.md — assignment and feedback requirements mapped to implementation and automated evidence.
+- docs/final_audit.md — final change summary and distinction between independently executed checks and owner-machine verification.
 
 ## License and third-party attribution
 
