@@ -1419,6 +1419,18 @@ private:
             sc_core::SC_NS
         );
 
+        uint32_t pending_before_reset = 0;
+        if (!spi_irq.read() ||
+            !read32(
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
+                pending_before_reset) ||
+            (pending_before_reset & 0x2u) == 0 ||
+            !cpu_irq.read()) {
+            fail("reset scenario did not establish an active/pending SPI interrupt");
+            return false;
+        }
+        std::cout << "Reset precondition: active SPI source and pending CPU IRQ: PASS\\n";
+
         // Leave a valid split-counter read latch containing upper word 1.
         // Reset must invalidate that stale sample before the post-reset
         // upper-word read below returns the reset value 0.
