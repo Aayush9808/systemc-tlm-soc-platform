@@ -83,10 +83,12 @@ If SystemC is installed outside the Homebrew default:
     ./build/soc_sim --scenario boot --timing timed-lt
     ./build/soc_sim --scenario boot --timing functional-fast
     ./build/soc_sim --scenario boot --timing timed-lt --rom-image firmware.bin
+    ./build/soc_sim --scenario boot --timing timed-lt --sram-image sram.bin
+    ./build/soc_sim --scenario boot --timing timed-lt --sram-read-latency-ns 3 --sram-write-latency-ns 5 --interconnect-latency-ns 2
     ./build/soc_sim --scenario boot --timing timed-lt --sram-latency-ns 5
     ./build/tlm_demo
 
-The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size. The SRAM latency can be overridden in nanoseconds with `--sram-latency-ns` (default: 10 ns). The peripheral register-transaction latency can be overridden with `--peripheral-latency-ns` (default: 10 ns); this does not change the timer's counter tick semantics.
+The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size. SRAM can be initialized from an optional binary image with `--sram-image`; oversized or unreadable images fail initialization. Read and write latency are independently configurable with `--sram-read-latency-ns` and `--sram-write-latency-ns` (both default to 10 ns). `--sram-latency-ns` remains a compatibility shortcut that sets both. The interconnect contributes an independently configurable `--interconnect-latency-ns` (default: 2 ns), and peripheral register transactions use `--peripheral-latency-ns` (default: 10 ns). These annotated transport delays do not change the timer's counter tick semantics.
 
 The TLM policy test covers valid access, unaligned access, invalid length, invalid streaming width, byte enables, unsupported commands and out-of-bounds access.
 
