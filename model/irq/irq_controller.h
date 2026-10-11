@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "../../generated/include/irq.h"
+#include "../../generated/include/soc_memory_map.h"
 
 class IrqController : public sc_core::sc_module {
 public:
@@ -152,7 +153,10 @@ private:
             return;
         }
 
-        if (address >= 0x10000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::IRQ
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
