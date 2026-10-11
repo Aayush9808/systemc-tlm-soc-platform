@@ -1,3 +1,10 @@
 build/
 trace_output.txt
 .venv/
+
+# Local build artifacts
+build-final/
+
+# Python cache
+__pycache__/
+*.py[cod]
