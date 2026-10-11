@@ -68,7 +68,7 @@ int sc_main(int argc, char* argv[]) {
         )
         if build.returncode:
             raise SystemExit(
-                "FAIL: image-error probe compilation failed:\\n"
+                "FAIL: image-error probe compilation failed:\n"
                 + build.stdout + build.stderr
             )
 
@@ -86,7 +86,7 @@ int sc_main(int argc, char* argv[]) {
             if run.returncode != 0:
                 raise SystemExit(
                     f"FAIL: {description} was not rejected as expected "
-                    f"(exit {run.returncode})\\n{run.stdout}{run.stderr}"
+                    f"(exit {run.returncode})\n{run.stdout}{run.stderr}"
                 )
             print(f"[PASS] {description} rejected")
 
