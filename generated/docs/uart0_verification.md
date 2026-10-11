@@ -15,7 +15,6 @@ Generated from the device schema.
 - `INTR_STATE` offset=`0x00000018` access=`W1C` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `INTR_ENABLE` offset=`0x0000001C` access=`RW` reset=`0x00000000` mask=`0xFFFFFFFF`
 
-
 ## Generated test vectors
 
 | Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |
