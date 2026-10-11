@@ -203,6 +203,35 @@ private:
                 failures++;
             }
 
+            // Verify the reverse direction too: a TLM write must be visible
+            // through the previously granted DMI pointer.
+            {
+                const unsigned char expected[4] = {0xEF, 0xCD, 0xAB, 0x89};
+                unsigned char write_data[4] = {0xEF, 0xCD, 0xAB, 0x89};
+                tlm::tlm_generic_payload write_trans;
+                write_trans.set_command(tlm::TLM_WRITE_COMMAND);
+                write_trans.set_address(0x24);
+                write_trans.set_data_ptr(write_data);
+                write_trans.set_data_length(4);
+                write_trans.set_streaming_width(4);
+                write_trans.set_byte_enable_ptr(nullptr);
+                sc_core::sc_time write_delay = sc_core::SC_ZERO_TIME;
+                socket->b_transport(write_trans, write_delay);
+
+                unsigned char* direct = dmi.get_dmi_ptr() +
+                    (0x24 - dmi.get_start_address());
+                const bool consistent =
+                    write_trans.get_response_status() == tlm::TLM_OK_RESPONSE &&
+                    direct[0] == expected[0] && direct[1] == expected[1] &&
+                    direct[2] == expected[2] && direct[3] == expected[3];
+                if (consistent) {
+                    std::cout << "[PASS] TLM write matches DMI direct read\n";
+                } else {
+                    std::cout << "[FAIL] TLM write matches DMI direct read\n";
+                    failures++;
+                }
+            }
+
             tlm::tlm_generic_payload outside;
             outside.set_command(tlm::TLM_READ_COMMAND);
             outside.set_address(1024 * 1024);
