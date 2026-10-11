@@ -49,7 +49,8 @@ public:
     SocSim(
         sc_core::sc_module_name name,
         bool functional_fast,
-        const std::string& rom_image)
+        const std::string& rom_image,
+        uint64_t sram_latency_ns)
         : sc_core::sc_module(name),
           socket("socket"),
           timer_irq("timer_irq"),
@@ -57,7 +58,7 @@ public:
           gpio_irq("gpio_irq"),
           uart_irq("uart_irq"),
           cpu_irq("cpu_irq"),
-          memory("memory", generated::SRAM_SIZE),
+          memory("memory", generated::SRAM_SIZE, sc_core::sc_time(static_cast<double>(sram_latency_ns), sc_core::SC_NS)),
           rom("rom", generated::ROM_SIZE, rom_image),
           uart("uart"),
           gpio("gpio"),
@@ -1490,6 +1491,7 @@ int sc_main(
     std::string scenario = "boot";
     std::string timing = "timed-lt";
     std::string rom_image;
+    uint64_t sram_latency_ns = 10;
 
     for (int i = 1; i < argc; ++i) {
 
@@ -1510,6 +1512,17 @@ int sc_main(
                  i + 1 < argc) {
 
             rom_image = argv[++i];
+        }
+        else if (arg == "--sram-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                sram_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --sram-latency-ns value\\n";
+                return 1;
+            }
         }
     }
 
@@ -1558,7 +1571,8 @@ int sc_main(
     SocSim soc(
         "soc",
         functional_fast,
-        rom_image
+        rom_image,
+        sram_latency_ns
     );
 
     sc_core::sc_start();
