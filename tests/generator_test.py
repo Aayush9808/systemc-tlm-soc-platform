@@ -277,11 +277,13 @@ def expect_register_addition():
             generate.OUT_DIR = original_out_dir
 
         cpp_header = (out_dir / "include" / "uart0.h").read_text()
+        cpp_source = (out_dir / "src" / "uart0_registers.cpp").read_text()
         sw_header = (out_dir / "sw" / "uart0.h").read_text()
         device_docs = (out_dir / "docs" / "uart0.md").read_text()
         verification = (out_dir / "docs" / "uart0_verification.md").read_text()
         checks = [
             ("TEST_REG_OFFSET = 0x00000020", cpp_header),
+            ("TEST_REG", cpp_source),
             ("TEST_REG_RESET = 0x000000A5", cpp_header),
             ("TEST_REG_PAYLOAD_MASK = 0x00000070", cpp_header),
             ("UART0_TEST_REG_OFFSET 0x00000020", sw_header),
