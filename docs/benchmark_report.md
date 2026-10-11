@@ -95,14 +95,14 @@ The benchmark initiator supports both per-transaction synchronization and a TLM 
 | Metric | Per-transaction baseline | Quantum keeper (100 ns) |
 |---|---:|---:|
 | Bus transactions | 2,006,000 | 2,006,000 |
-| Host runtime | 0.172798 s | 0.078142 s |
-| Throughput | 11,608,944 transactions/s | 25,671,359 transactions/s |
+| Host runtime | 0.286907 s | 0.078142 s |
+| Throughput | 6,991,809 transactions/s | 25,671,359 transactions/s |
 | Simulated time | 24,072 us | 24,072 us |
 | Synchronization count | 2,006,000 | 240,720 |
 | Checksum | 0xe0380 | 0xe0380 |
 | Result | PASS | PASS |
 
-On this workload, the quantum-keeper path delivered approximately **2.21x host-throughput** and reduced synchronization calls by approximately **8.34x**. CI explicitly verifies that transaction counts, simulated time and checksum match between modes, and that the quantum path performs fewer synchronizations.
+On this workload, the quantum-keeper path delivered approximately **2.33x host-throughput** and reduced synchronization calls by approximately **8.34x**. CI explicitly verifies that transaction counts, simulated time and checksum match between modes, and that the quantum path performs fewer synchronizations.
 
 This is a benchmark-specific result: the workload contains SRAM and periodic MMIO traffic but does not exercise timer/IRQ observation during the quantum window. It demonstrates safe batching for this workload, not universal equivalence for arbitrary asynchronous peripheral scenarios.
 
@@ -130,9 +130,9 @@ For comparable results, compare throughput, transaction counts, simulated time, 
 
 ## 10. Current Linux CI baseline (2026-10-11)
 
-Recorded by GitHub Actions run #229 on commit `93034eaf5a74520f7f57cbffde7bbc6a8885b158`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
+Recorded by GitHub Actions run #230 on commit `9e8733da702395f8ba5c7abca10d9ae46b76bc1c`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
 
-- Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 9V45 96-Core Processor (4 vCPUs assigned).
+- Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 9V74 80-Core Processor (4 vCPUs assigned).
 - Compiler: GNU C++ 13.3.0.
 - SystemC: 2.3.4 (Ubuntu package).
 - Build: CMake Release.
@@ -147,14 +147,14 @@ Recorded by GitHub Actions run #229 on commit `93034eaf5a74520f7f57cbffde7bbc6a8
 | UART transactions | 2,000 |
 | GPIO transactions | 2,000 |
 | SPI transactions | 2,000 |
-| Host runtime | 0.176150 s |
-| Throughput | 11,388,033 transactions/s |
+| Host runtime | 0.279942 s |
+| Throughput | 7,165,761 transactions/s |
 | Simulated time | 24,072 us |
 | Synchronization count | 2,006,000 |
 | Checksum | 0xe0380 |
 | Result | PASS |
 
-A paired baseline run in the quantum comparison step measured 0.172798 s; small differences between baseline runs reflect runner load. Use the paired measurements in Section 7 for the temporal-decoupling comparison.
+A paired baseline run in the quantum comparison step measured 0.286907 s; small differences between baseline runs reflect runner load. Use the paired measurements in Section 7 for the temporal-decoupling comparison.
 
 ## 11. Reproducible quantum-keeper comparison
 
