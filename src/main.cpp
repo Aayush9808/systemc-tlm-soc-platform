@@ -48,7 +48,8 @@ public:
 
     SocSim(
         sc_core::sc_module_name name,
-        bool functional_fast)
+        bool functional_fast,
+        const std::string& rom_image)
         : sc_core::sc_module(name),
           socket("socket"),
           timer_irq("timer_irq"),
@@ -57,7 +58,7 @@ public:
           uart_irq("uart_irq"),
           cpu_irq("cpu_irq"),
           memory("memory"),
-          rom("rom"),
+          rom("rom", generated::ROM_SIZE, rom_image),
           uart("uart"),
           gpio("gpio"),
           timer("timer"),
@@ -1488,6 +1489,7 @@ int sc_main(
 
     std::string scenario = "boot";
     std::string timing = "timed-lt";
+    std::string rom_image;
 
     for (int i = 1; i < argc; ++i) {
 
@@ -1503,6 +1505,11 @@ int sc_main(
                  i + 1 < argc) {
 
             timing = argv[++i];
+        }
+        else if (arg == "--rom-image" &&
+                 i + 1 < argc) {
+
+            rom_image = argv[++i];
         }
     }
 
@@ -1550,7 +1557,8 @@ int sc_main(
 
     SocSim soc(
         "soc",
-        functional_fast
+        functional_fast,
+        rom_image
     );
 
     sc_core::sc_start();
