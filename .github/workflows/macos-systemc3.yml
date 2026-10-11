@@ -1,0 +1,86 @@
+name: macOS SystemC 3.x compatibility
+
+on:
+  push:
+    branches:
+      - main
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos-systemc3:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install SystemC and Python dependency
+        run: |
+          brew update
+          brew install systemc
+          python3 -m pip install --user PyYAML
+
+      - name: Report toolchain
+        run: |
+          clang++ --version
+          cmake --version
+          brew info systemc
+          echo "SYSTEMC_ROOT=$(brew --prefix systemc)"
+
+      - name: Validate generated artifacts
+        run: python3 generator/generate.py --check
+
+      - name: Configure and build with SystemC 3.x
+        run: |
+          cmake -S . -B build -DSYSTEMC_ROOT="$(brew --prefix systemc)" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel 2
+
+      - name: Run tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run firmware scenarios in both timing modes
+        run: |
+          ./build/soc_sim --scenario boot --timing timed-lt
+          ./build/soc_sim --scenario boot --timing functional-fast
+
+      - name: Smoke-test million-iteration benchmark modes
+        run: |
+          ./build/soc_bench 1000000 > /tmp/baseline.log
+          ./build/soc_bench 1000000 --quantum-ns 100 > /tmp/quantum.log
+          ./build/soc_bench 1000000 --dmi --quantum-ns 100 > /tmp/dmi.log
+          cat /tmp/baseline.log
+          cat /tmp/quantum.log
+          cat /tmp/dmi.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          outputs = {
+              name: Path(f"/tmp/{name}.log").read_text()
+              for name in ("baseline", "quantum", "dmi")
+          }
+
+          def value(output, label):
+              match = re.search(rf"^{re.escape(label)}:\\s*(.+)$", output, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"missing benchmark metric: {label}")
+              return match.group(1).strip()
+
+          for name, output in outputs.items():
+              if "Benchmark: PASS" not in output:
+                  raise SystemExit(f"{name} benchmark did not report PASS")
+
+          for label in ("Checksum", "Total operations"):
+              values = {name: value(output, label) for name, output in outputs.items()}
+              if len(set(values.values())) != 1:
+                  raise SystemExit(f"{label} differs between benchmark modes: {values}")
+
+          if int(value(outputs["dmi"], "DMI operations")) != 2_000_000:
+              raise SystemExit("DMI path did not execute 2,000,000 SRAM operations")
+
+          if int(value(outputs["dmi"], "Bus transactions")) >= int(value(outputs["quantum"], "Bus transactions")):
+              raise SystemExit("DMI path did not bypass SRAM bus transactions")
+
+          print("macOS SystemC 3.x benchmark compatibility: PASS")
+          PY
