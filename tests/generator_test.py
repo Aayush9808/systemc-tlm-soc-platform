@@ -364,7 +364,7 @@ int main() {
         const auto& range = MEMORY_MAP[i];
         if (range.target == TargetId::UART0) {
             found_uart = true;
-            if (range.base != 0x50000000ULL || range.size != 0x1000ULL)
+            if (range.base != 0x50000000ULL || range.size != 0x2000ULL)
                 return 2;
             const uint64_t transaction_address = range.base + uart0::WDATA_OFFSET;
             if (transaction_address != 0x50000020ULL) return 3;
