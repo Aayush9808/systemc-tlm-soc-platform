@@ -14,3 +14,10 @@
 | FIFO_STATUS | 0x00000014 | RO | 0x00000000 | 0xFFFFFFFF |
 | INTR_STATE | 0x00000018 | W1C | 0x00000000 | 0xFFFFFFFF |
 | INTR_ENABLE | 0x0000001C | RW | 0x00000000 | 0xFFFFFFFF |
+
+### CTRL fields
+
+| Field | Bit offset | Width | Access | Mask |
+|---|---:|---:|---|---:|
+| TX | 0 | 1 | RW | 0x00000001 |
+| RX | 1 | 1 | RW | 0x00000002 |
