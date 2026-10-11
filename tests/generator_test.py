@@ -661,6 +661,10 @@ def expect_full_firmware_scenario_with_relocated_uart():
             0x78, 0x56, 0x34, 0x12,
             0xEF, 0xCD, 0xAB, 0x89,
         ]))
+        sram_image = temp_root / "test_sram.bin"
+        sram_bytes = bytearray(0x104)
+        sram_bytes[0x100:0x104] = bytes([0x11, 0x22, 0x33, 0x44])
+        sram_image.write_bytes(sram_bytes)
 
         simulated_seconds = {}
         time_scale = {
@@ -676,8 +680,11 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 [
                     str(binary), "--scenario", "boot", "--timing", timing,
                     "--rom-image", str(rom_image),
-                    "--sram-latency-ns", "3",
+                    "--sram-image", str(sram_image),
+                    "--sram-read-latency-ns", "3",
+                    "--sram-write-latency-ns", "5",
                     "--peripheral-latency-ns", "7",
+                    "--interconnect-latency-ns", "5",
                 ],
                 capture_output=True,
                 text=True,
@@ -696,6 +703,11 @@ def expect_full_firmware_scenario_with_relocated_uart():
             if "0x12345678 -> 0x12345678" not in output:
                 raise SystemExit(
                     f"FAIL: binary ROM image was not loaded in {timing}:\\n"
+                    + output
+                )
+            if "SRAM initialization image: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: SRAM initialization image was not loaded in {timing}:\\n"
                     + output
                 )
             if "Unmapped address 0x80000000 rejected: PASS" not in output:
@@ -754,6 +766,8 @@ def expect_full_firmware_scenario_with_relocated_uart():
             )
 
     print("[PASS] binary ROM image loads and is copied correctly in both timing modes")
+    print("[PASS] SRAM initialization image and distinct read/write latencies work in both timing modes")
+    print("[PASS] configurable interconnect latency participates in annotated timing")
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
     print("[PASS] timing regression confirms timed-LT consumes annotated delays")
