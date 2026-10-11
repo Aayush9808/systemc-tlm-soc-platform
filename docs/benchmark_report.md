@@ -119,7 +119,36 @@ Run:
 
 For comparable results, compare throughput, transaction counts, simulated time and checksum. Host runtime varies with machine load.
 
-## 10. Conclusion
+## 10. CI verification benchmark (2026-10-11)
+
+A fresh Linux CI run executed the required million-iteration workload after the benchmark was updated to consume generated memory-map and register constants.
+
+Environment: GitHub-hosted Ubuntu 24.04.5 runner; SystemC dependency installed from the Ubuntu package repository. The exact host CPU model and compiler version were not captured in the workflow log, so this result should not be treated as a controlled cross-machine comparison.
+
+Command:
+
+    ./build/soc_bench 1000000
+
+| Metric | CI result |
+|---|---:|
+| Requested iterations | 1,000,000 |
+| Bus transactions | 2,006,000 |
+| SRAM transactions | 2,000,000 |
+| UART transactions | 2,000 |
+| GPIO transactions | 2,000 |
+| SPI transactions | 2,000 |
+| Host runtime | 0.474166 s |
+| Throughput | 4,230,588 transactions/s |
+| Simulated time | 20,060 us |
+| Checksum | 0xe0380 |
+| Trace | OFF |
+| Result | PASS |
+
+This run confirms the workload completed and produced the expected transaction counts, simulated time and checksum. Host runtime differs from the historical macOS result because the host and execution environment differ; the measurements are not directly comparable.
+
+The baseline deliberately does not use a quantum keeper. The measured CI figure is a baseline for the current per-transaction synchronization policy, not a measured speedup comparison against temporal decoupling. A quantitative quantum-keeper comparison remains future work; no speedup is claimed.
+
+## 11. Conclusion
 
 The platform provides a measurable baseline with millions of mixed TLM transactions, per-target counters, DMI acceleration, optional trace instrumentation and two timing modes.
 
