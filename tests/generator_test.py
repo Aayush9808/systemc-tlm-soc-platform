@@ -597,9 +597,18 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 + build.stdout + build.stderr
             )
 
+        rom_image = temp_root / "test_rom.bin"
+        rom_image.write_bytes(bytes([
+            0x78, 0x56, 0x34, 0x12,
+            0xEF, 0xCD, 0xAB, 0x89,
+        ]))
+
         for timing in ("timed-lt", "functional-fast"):
             run = subprocess.run(
-                [str(binary), "--scenario", "boot", "--timing", timing],
+                [
+                    str(binary), "--scenario", "boot", "--timing", timing,
+                    "--rom-image", str(rom_image),
+                ],
                 capture_output=True,
                 text=True,
             )
@@ -612,6 +621,11 @@ def expect_full_firmware_scenario_with_relocated_uart():
             if "All required firmware checks: PASS" not in output:
                 raise SystemExit(
                     f"FAIL: relocated firmware scenario did not report PASS in {timing}:\\n"
+                    + output
+                )
+            if "0x12345678 -> 0x12345678" not in output:
+                raise SystemExit(
+                    f"FAIL: binary ROM image was not loaded in {timing}:\\n"
                     + output
                 )
             if "Unmapped address 0x80000000 rejected: PASS" not in output:
@@ -652,6 +666,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 + benchmark_output
             )
 
+    print("[PASS] binary ROM image loads and is copied correctly in both timing modes")
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
     print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
