@@ -32,10 +32,15 @@ public:
         INTR_FALL        = generated::gpio::INTR_FALL_OFFSET
     };
 
-    Gpio(sc_core::sc_module_name name)
+    Gpio(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -92,6 +97,8 @@ public:
     }
 
 private:
+    sc_core::sc_time transaction_latency_;
+
     uint32_t data_in = generated::gpio::DATA_IN_RESET;
     uint32_t direct_out = generated::gpio::DIRECT_OUT_RESET;
     uint32_t output_enable = generated::gpio::DIRECT_OE_RESET;
@@ -197,7 +204,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(10, sc_core::SC_NS);
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
