@@ -126,7 +126,7 @@ SPI provides reduced control/config/status/TX/RX FIFO behavior. Each TX write co
 
 UART, GPIO, timer and SPI drive interrupt signals into a minimal PLIC-like controller.
 
-The controller exposes pending, enable, claim and complete registers. A pending and enabled source becomes claimable. Claim returns a deterministic source ID and completion releases the claimed source.
+The controller exposes pending, enable, claim and complete registers. A pending and enabled source becomes claimable. Claim returns a deterministic source ID and completion releases the claimed source. Claim priority is fixed by source order (timer, SPI, GPIO, UART); programmable priority and threshold registers are not implemented in this reduced model.
 
 The timer uses event-driven compare scheduling. GPIO interrupts are generated from input transitions. UART and SPI interrupts are generated from FIFO/event conditions.
 
