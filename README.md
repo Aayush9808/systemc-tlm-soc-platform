@@ -82,9 +82,10 @@ If SystemC is installed outside the Homebrew default:
 
     ./build/soc_sim --scenario boot --timing timed-lt
     ./build/soc_sim --scenario boot --timing functional-fast
+    ./build/soc_sim --scenario boot --timing timed-lt --rom-image firmware.bin
     ./build/tlm_demo
 
-The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior.
+The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size.
 
 The TLM policy test covers valid access, unaligned access, invalid length, invalid streaming width, byte enables, unsupported commands and out-of-bounds access.
 
