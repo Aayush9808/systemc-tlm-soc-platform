@@ -51,6 +51,8 @@ The source of truth is specs/soc.yaml.
 
 Targets implement b_transport with annotated SystemC delays.
 
+ROM is initialized from a deterministic built-in data table by default, or from an optional binary image passed with `--rom-image`. The image is loaded into the configured generated ROM size; missing, unreadable or oversized images fail initialization rather than silently truncating the firmware.
+
 The baseline transaction contract is:
 
 - 32-bit accesses;
