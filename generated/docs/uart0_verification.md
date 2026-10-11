@@ -5,6 +5,8 @@ Generated from the device schema.
 ## Register checks
 
 - `CTRL` offset=`0x00000000` access=`RW` reset=`0x00000000` mask=`0x00000003`
+  - Field `CTRL.TX`: bit_offset=`0`, bit_width=`1`, access=`RW`, mask=`0x00000001`
+  - Field `CTRL.RX`: bit_offset=`1`, bit_width=`1`, access=`RW`, mask=`0x00000002`
 - `STATUS` offset=`0x00000004` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `RDATA` offset=`0x00000008` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `WDATA` offset=`0x0000000C` access=`WO` reset=`0x00000000` mask=`0xFFFFFFFF`
@@ -26,3 +28,5 @@ Generated from the device schema.
 - The memory map is generated as a data-driven table.
 - Register metadata is generated from the schema.
 - Software offsets and masks are generated.
+- Field names, ranges, access types, and overlaps are validated.
+- C++ and software field masks are generated from YAML.
