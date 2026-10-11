@@ -644,7 +644,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
                     + output
                 )
             time_match = re.search(
-                r"Simulation time:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(fs|ps|ns|us|ms|s)",
+                r"Simulation time:\s*([0-9]+(?:\.[0-9]+)?)\s*(fs|ps|ns|us|ms|s)",
                 output,
             )
             if time_match is None:
