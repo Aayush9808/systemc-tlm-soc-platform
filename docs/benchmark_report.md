@@ -123,6 +123,7 @@ Run:
 
     ./build/soc_bench 1000000
     ./build/soc_bench 1000000 --quantum-ns 100
+    ./build/soc_bench 1000000 --dmi --quantum-ns 100
     ./build/soc_bench 5000 --trace
     ./build/tlm_demo
 
