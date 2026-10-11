@@ -60,7 +60,7 @@ A separate 1,000,000-operation SRAM experiment compared ordinary TLM transport w
 | Approx. throughput | 8.83 million ops/s | 2.239 billion ops/s |
 | Simulated time | about 10.00001 ms | about 10.00001 ms |
 
-Measured DMI speedup: approximately **253.6x**.
+Measured DMI speedup: approximately **253.6x**. This is a historical local direct-pointer experiment from the earlier harness and is not directly comparable to the current CI DMI+quantum mixed workload; use Section 11 for the reproducible current comparison.
 
 This result is workload- and host-dependent. It demonstrates the expected benefit of bypassing repeated TLM transport for high-volume SRAM access.
 
@@ -72,14 +72,14 @@ Current CI measurement (run #255, same Release runner, 100,000 iterations): both
 
 The overhead is expected because the trace path formats and prints transaction details for every routed access. Tracing is disabled by default. Runtime ratios are host/load dependent.
 
-## 6. Timing modes
+## 6. Historical timing-mode measurements
 
 The firmware scenario was run in both modes.
 
 - timed-LT: approximately 1340 ns simulated time in the recorded boot run.
 - functional-fast: approximately 160 ns simulated time in the recorded boot run.
 
-The exact values depend on the scenario, but timed-LT preserves target delay waiting while functional-fast suppresses that waiting for faster functional execution.
+The exact values depend on the scenario, but timed-LT preserves target delay waiting while functional-fast suppresses that waiting for faster functional execution. These values predate the explicit interconnect latency and per-target latency controls. Current CI verifies that timed-LT advances more simulated time than functional-fast with non-default target settings; use the CLI controls in the README for reproducible current timing experiments.
 
 The timer is driven by SystemC simulated time, never by host wall-clock time.
 
