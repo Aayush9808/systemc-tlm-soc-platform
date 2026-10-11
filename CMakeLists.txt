@@ -42,7 +42,7 @@ target_include_directories(soc_sim PRIVATE
 
 target_link_libraries(soc_sim PRIVATE "${SYSTEMC_LIBRARY}")
 
-add_executable(tlm_demo app/tlm_demo.cpp)
+add_executable(tlm_demo app/tlm_demo.cpp ${GENERATED_REGISTER_SOURCES})
 
 target_include_directories(tlm_demo PRIVATE
     "${SYSTEMC_INCLUDE_DIR}"
