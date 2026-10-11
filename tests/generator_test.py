@@ -603,6 +603,15 @@ def expect_full_firmware_scenario_with_relocated_uart():
             0xEF, 0xCD, 0xAB, 0x89,
         ]))
 
+        simulated_seconds = {}
+        time_scale = {
+            "fs": 1e-15,
+            "ps": 1e-12,
+            "ns": 1e-9,
+            "us": 1e-6,
+            "ms": 1e-3,
+            "s": 1.0,
+        }
         for timing in ("timed-lt", "functional-fast"):
             run = subprocess.run(
                 [
@@ -634,6 +643,23 @@ def expect_full_firmware_scenario_with_relocated_uart():
                     f"FAIL: unmapped-address regression did not use the generated map in {timing}:\\n"
                     + output
                 )
+            time_match = re.search(
+                r"Simulation time:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(fs|ps|ns|us|ms|s)",
+                output,
+            )
+            if time_match is None:
+                raise SystemExit(
+                    f"FAIL: simulation time was not reported in {timing}:\\n" + output
+                )
+            simulated_seconds[timing] = (
+                float(time_match.group(1)) * time_scale[time_match.group(2)]
+            )
+
+        if simulated_seconds["timed-lt"] <= simulated_seconds["functional-fast"]:
+            raise SystemExit(
+                "FAIL: timed-LT did not advance more simulated time than functional-fast: "
+                + repr(simulated_seconds)
+            )
 
         benchmark_binary = temp_root / "soc_bench_relocated"
         benchmark_build = subprocess.run(
@@ -670,6 +696,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
     print("[PASS] binary ROM image loads and is copied correctly in both timing modes")
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
+    print("[PASS] timing regression confirms timed-LT consumes annotated delays")
     print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
 
 
