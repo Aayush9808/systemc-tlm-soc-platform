@@ -60,7 +60,7 @@ target_include_directories(tlm_policy_test PRIVATE
 
 target_link_libraries(tlm_policy_test PRIVATE "${SYSTEMC_LIBRARY}")
 
-add_executable(soc_bench benchmarks/soc_bench.cpp)
+add_executable(soc_bench benchmarks/soc_bench.cpp ${GENERATED_REGISTER_SOURCES})
 
 target_include_directories(soc_bench PRIVATE
     "${SYSTEMC_INCLUDE_DIR}"
