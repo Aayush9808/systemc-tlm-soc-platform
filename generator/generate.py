@@ -235,6 +235,43 @@ def validate_device(data, path):
                     f"{prefix}.mask: must fit in 32 bits"
                 )
 
+        fields = reg.get("fields", [])
+        if not isinstance(fields, list):
+            raise ValueError(f"{prefix}.fields: must be a list")
+
+        field_names = set()
+        occupied_bits = 0
+        for field_index, field in enumerate(fields):
+            field_prefix = f"{prefix}.fields[{field_index}]"
+            if not isinstance(field, dict):
+                raise ValueError(f"{field_prefix}: must be a mapping")
+            for required_field in ("name", "bit_offset", "bit_width", "access"):
+                if required_field not in field:
+                    raise ValueError(f"{field_prefix}: missing '{required_field}'")
+
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{field_prefix}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{field_prefix}.bit_width")
+            field_access = field["access"]
+            if not is_cpp_identifier(field_name):
+                raise ValueError(f"{field_prefix}: invalid field identifier")
+            if field_name in field_names:
+                raise ValueError(f"{prefix}: duplicate field name '{field_name}'")
+            if bit_offset < 0 or bit_offset > 31:
+                raise ValueError(f"{field_prefix}.bit_offset: must be between 0 and 31")
+            if bit_width < 1 or bit_width > 32:
+                raise ValueError(f"{field_prefix}.bit_width: must be between 1 and 32")
+            if bit_offset + bit_width > 32:
+                raise ValueError(f"{field_prefix}: field exceeds 32-bit register width")
+            if not isinstance(field_access, str) or field_access not in VALID_ACCESS:
+                raise ValueError(f"{field_prefix}.access: invalid access '{field_access}'")
+
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            if occupied_bits & field_mask:
+                raise ValueError(f"{prefix}: field '{field_name}' overlaps another field")
+            occupied_bits |= field_mask
+            field_names.add(field_name)
+
         names.add(name)
         offsets.add(offset)
 
@@ -484,6 +521,15 @@ def generate_device_header(data):
             f'"{access}";'
         )
 
+        for field in reg.get("fields", []):
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg_name}.{field_name}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg_name}.{field_name}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_BIT_OFFSET = {bit_offset};")
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_BIT_WIDTH = {bit_width};")
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_MASK = {hex_value(field_mask)};")
+
         lines.append("")
 
     lines.append(
@@ -628,6 +674,15 @@ def generate_software_header(data):
             f"#define {prefix}_{reg_name}_MASK "
             f"{hex_value(mask)}"
         )
+
+        for field in reg.get("fields", []):
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg_name}.{field_name}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg_name}.{field_name}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_BIT_OFFSET {bit_offset}")
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_BIT_WIDTH {bit_width}")
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_MASK {hex_value(field_mask)}")
 
     lines.extend([
         "",
