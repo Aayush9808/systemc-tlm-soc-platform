@@ -114,7 +114,7 @@ specs/soc.yaml is the memory-map source of truth. Device YAML files define regis
 
 The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, field identifiers/access/ranges/overlaps, overlapping memory ranges and uint64 address overflow.
 
-Register fields (for example UART CTRL TX/RX) generate C++ bit offsets/widths/masks, firmware header macros, and human-readable verification summaries.
+Register fields (for example UART CTRL TX/RX) generate C++ bit offsets/widths/masks, firmware header macros, and human-readable verification summaries. The generated per-device dispatch functions are linked into the simulator, demo and benchmark and are called by each peripheral model for register decoding and access-policy checks.
 
 Generated output is kept under generated/. Handwritten behavioral models remain under model/. Existing-target base/size relocation is covered through the real TLM interconnect; adding a new target still requires a C++ socket, binding and dispatch case.
 
