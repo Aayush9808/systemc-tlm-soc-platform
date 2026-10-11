@@ -545,9 +545,52 @@ private:
         if (!write32(
                 (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 0)) {
-            fail("UART control reset before IRQ scenario failed");
+            fail("UART control reset before RX scenario failed");
             return false;
         }
+
+        // RX must ignore injected bytes while disabled.
+        uart.inject_rx('X');
+        uint32_t uart_fifo_status = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART accepted RX stimulus while RX was disabled");
+            return false;
+        }
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                2)) {
+            fail("UART RX enable failed");
+            return false;
+        }
+        uart.inject_rx('R');
+        wait(sc_core::SC_ZERO_TIME);
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 1) {
+            fail("UART RX FIFO occupancy did not reflect injected byte");
+            return false;
+        }
+        uint32_t uart_rx_value = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::RDATA_OFFSET),
+                uart_rx_value) ||
+            uart_rx_value != static_cast<uint32_t>('R')) {
+            fail("UART RDATA did not dequeue the injected byte");
+            return false;
+        }
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART RX FIFO occupancy did not clear after RDATA read");
+            return false;
+        }
+        std::cout << "UART RX injection, FIFO occupancy and dequeue: PASS\\n";
 
         if (!write32(
                 (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
@@ -1061,6 +1104,27 @@ private:
             fail("unexpected SPI response");
             return false;
         }
+
+        // CFG bit 0 selects loopback, so changing configuration must change
+        // the received stream rather than only changing a stored register.
+        if (!write32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
+                1) ||
+            !write32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
+                0x5A)) {
+            fail("SPI loopback configuration/transfer failed");
+            return false;
+        }
+        uint32_t loopback_rx = 0;
+        if (!read32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::RX_OFFSET),
+                loopback_rx) ||
+            (loopback_rx & 0xFFu) != 0x5Au) {
+            fail("SPI CFG loopback setting did not change transfer behavior");
+            return false;
+        }
+        std::cout << "SPI CFG loopback changes transfer behavior: PASS\\n";
 
         // The reduced model completes each TX transfer synchronously. More
         // than FIFO_SIZE writes must therefore not leave the TX FIFO stuck
