@@ -81,7 +81,7 @@ The same architectural transactions and checks are executed, but the scenario av
 
 The timer is independent of host wall-clock time. Its counter is derived from sc_time_stamp(), prescaler and step configuration. Compare interrupts are scheduled with SystemC events.
 
-A quantum keeper is not used by the firmware-like SoC initiator, which waits on each `b_transport` annotation in timed-LT mode. The benchmark has a separate `--quantum-ns 100` mode using `tlm_utils::tlm_quantumkeeper`; CI compares it with the baseline and requires identical transaction counts, simulated time and checksum. In the recorded 1M-iteration experiment, the quantum path reduced synchronization calls from 2,006,000 to 240,720 and improved throughput by about 2.21x. This result is specific to the benchmark workload, which does not observe asynchronous timer/IRQ state during the quantum window. Functional-fast remains a functional comparison mode, not a timing-equivalent optimization.
+A quantum keeper is not used by the firmware-like SoC initiator, which waits on each `b_transport` annotation in timed-LT mode. The benchmark has a separate `--quantum-ns 100` mode using `tlm_utils::tlm_quantumkeeper`; CI compares it with the baseline and requires identical transaction counts, simulated time and checksum. In the recorded 1M-iteration experiment, the quantum path reduced synchronization calls from 2,006,000 to 240,720 and improved throughput by about 2.18x. This result is specific to the benchmark workload, which does not observe asynchronous timer/IRQ state during the quantum window. Functional-fast remains a functional comparison mode, not a timing-equivalent optimization.
 
 ## 6. Schema-driven generation
 

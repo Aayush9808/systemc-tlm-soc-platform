@@ -5,6 +5,7 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+#include <unordered_map>
 
 #include "../../generated/include/gpio.h"
 #include "../../generated/include/soc_memory_map.h"
@@ -49,6 +50,7 @@ public:
         );
 
         irq.initialize(false);
+        reset_generic_registers();
     }
 
     void set_output_callback(OutputCallback callback) {
@@ -90,6 +92,7 @@ public:
         intr_enable = generated::gpio::INTR_ENABLE_RESET;
         intr_rise = generated::gpio::INTR_RISE_RESET;
         intr_fall = generated::gpio::INTR_FALL_RESET;
+        reset_generic_registers();
 
         // Keep external observers (for example, a GPIO-backed LED) in sync
         // when reset changes the output state.
@@ -110,6 +113,19 @@ private:
     uint32_t intr_fall = generated::gpio::INTR_FALL_RESET;
 
     OutputCallback output_callback;
+
+    // Preserve YAML-defined registers that do not have bespoke GPIO side
+    // effects. This makes adding a register to gpio.yaml affect runtime state,
+    // rather than only generated metadata and documentation.
+    std::unordered_map<uint32_t, uint32_t> generic_registers_;
+
+    void reset_generic_registers() {
+        generic_registers_.clear();
+        for (unsigned int i = 0; i < generated::gpio::REGISTER_COUNT; ++i) {
+            const auto& reg = generated::gpio::REGISTERS[i];
+            generic_registers_[reg.offset] = reg.reset;
+        }
+    }
 
     void notify_output_change(
         uint32_t previous,
@@ -346,9 +362,28 @@ private:
                 intr_fall = value;
                 break;
 
-            default:
+            default: {
+                auto it = generic_registers_.find(
+                    static_cast<uint32_t>(address)
+                );
+                if (it != generic_registers_.end()) {
+                    if (register_is_w1c(address)) {
+                        it->second &= ~value;
+                    } else {
+                        it->second = value;
+                    }
+                }
                 break;
+            }
         }
+    }
+
+    bool register_is_w1c(uint64_t address) const {
+        const auto* metadata = generated::gpio::find_register(
+            static_cast<uint32_t>(address)
+        );
+        return metadata != nullptr &&
+               metadata->access == generated::RegisterAccess::W1C;
     }
 
     void read_register(
@@ -387,9 +422,13 @@ private:
                 value = intr_fall;
                 break;
 
-            default:
-                value = 0;
+            default: {
+                auto it = generic_registers_.find(
+                    static_cast<uint32_t>(address)
+                );
+                value = it == generic_registers_.end() ? 0 : it->second;
                 break;
+            }
         }
 
         put_value(data, value);

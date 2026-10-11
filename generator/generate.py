@@ -79,8 +79,16 @@ def validate_soc(data, path):
                 f"{prefix}: name must be a valid C++ identifier"
             )
 
-        if not isinstance(entry["type"], str) or not entry["type"].strip():
-            raise ValueError(f"{prefix}: type must be a non-empty string")
+        allowed_types = {"rom", "ram", "peripheral"}
+
+        if (
+            not isinstance(entry["type"], str)
+            or entry["type"] not in allowed_types
+        ):
+            raise ValueError(
+                f"{prefix}: type must be one of "
+                f"{', '.join(sorted(allowed_types))}"
+            )
 
         if name in names:
             raise ValueError(
@@ -296,6 +304,42 @@ def validate_all():
         data = load_yaml(path)
         validate_device(data, path)
         device_data[filename] = data
+
+    # Every peripheral register must fit inside its declared SoC region.
+    memory_map = {
+        entry["name"]: entry
+        for entry in soc_data["memory_map"]
+    }
+
+    for filename, data in device_data.items():
+        device_name = data["device"]["name"]
+        spec_path = SPEC_DIR / filename
+
+        if device_name not in memory_map:
+            raise ValueError(
+                f"{spec_path}: device '{device_name}' "
+                "has no matching SoC memory-map entry"
+            )
+
+        region = memory_map[device_name]
+        region_size = numeric_value(
+            region["size"],
+            f"{spec_path}: memory-map size"
+        )
+
+        for index, reg in enumerate(data["registers"]):
+            offset = numeric_value(
+                reg["offset"],
+                f"{spec_path}: registers[{index}].offset"
+            )
+
+            if offset + 4 > region_size:
+                raise ValueError(
+                    f"{spec_path}: register '{reg['name']}' at "
+                    f"{hex_value(offset)} extends beyond "
+                    f"the '{device_name}' region "
+                    f"(size {hex_value(region_size)})"
+                )
 
     return soc_data, device_data
 

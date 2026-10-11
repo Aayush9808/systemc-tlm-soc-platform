@@ -160,6 +160,133 @@ int sc_main(int argc, char* argv[]) {
     print("[PASS] SRAM image contents and separate read/write latencies verified at runtime")
 
 
+
+def expect_gpio_yaml_register_runtime():
+    """Verify a newly declared GPIO register is backed by live runtime state."""
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if not systemc_include or not systemc_library:
+        raise SystemExit("FAIL: SystemC paths are required for the GPIO runtime probe")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for the GPIO runtime probe")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        gpio_path = spec_dir / "gpio.yaml"
+        gpio_data = load(gpio_path)
+        gpio_data["registers"].extend([
+            {"name": "SCRATCH", "offset": "0x7C", "access": "RW",
+             "reset": "0xA5", "mask": "0xFF"},
+            {"name": "TEST_W1C", "offset": "0x80", "access": "W1C",
+             "reset": "0x3", "mask": "0xF"},
+        ])
+        save(gpio_path, gpio_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        (temp_root / "model" / "peripherals").mkdir(parents=True)
+        shutil.copy2(ROOT / "model" / "peripherals" / "gpio.h",
+                     temp_root / "model" / "peripherals" / "gpio.h")
+        probe = temp_root / "gpio_yaml_register_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+#include "model/peripherals/gpio.h"
+
+struct Probe : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Probe> socket;
+    sc_core::sc_signal<bool> irq_signal;
+    Gpio gpio;
+    bool passed = false;
+
+    SC_CTOR(Probe)
+        : socket("socket"), irq_signal("irq_signal"), gpio("gpio") {
+        socket.bind(gpio.socket);
+        gpio.irq(irq_signal);
+        SC_THREAD(run);
+    }
+
+    bool access(tlm::tlm_command command, uint64_t address, uint32_t& value) {
+        tlm::tlm_generic_payload trans;
+        trans.set_command(command);
+        trans.set_address(address);
+        trans.set_data_ptr(reinterpret_cast<unsigned char*>(&value));
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        return trans.get_response_status() == tlm::TLM_OK_RESPONSE;
+    }
+
+    void run() {
+        wait(sc_core::SC_ZERO_TIME);
+        uint32_t value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0xA5) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0x123;
+        if (!access(tlm::TLM_WRITE_COMMAND, 0x7C, value)) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0x23) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0x1;
+        if (!access(tlm::TLM_WRITE_COMMAND, 0x80, value)) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x80, value) || value != 0x2) {
+            sc_core::sc_stop(); return;
+        }
+        gpio.reset();
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0xA5) {
+            sc_core::sc_stop(); return;
+        }
+        passed = true;
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int, char**) {
+    Probe probe("probe");
+    sc_core::sc_start();
+    return probe.passed ? 0 : 1;
+}
+''')
+        binary = temp_root / "gpio_yaml_register_probe"
+        build = subprocess.run(
+            [compiler, "-std=c++17", "-I", systemc_include, "-I", str(temp_root),
+             str(probe), str(out_dir / "src" / "gpio_registers.cpp"),
+             systemc_library, "-o", str(binary)],
+            capture_output=True, text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit("FAIL: GPIO YAML runtime probe did not compile:\\n"
+                             + build.stdout + build.stderr)
+        run = subprocess.run([str(binary)], capture_output=True, text=True)
+        if run.returncode != 0:
+            raise SystemExit("FAIL: GPIO YAML runtime probe failed:\\n"
+                             + run.stdout + run.stderr)
+    print("[PASS] added YAML GPIO RW/W1C registers honor reset, mask, writes and reset at runtime")
+
+
 def expect_address_relocation():
     with tempfile.TemporaryDirectory() as temp:
         temp_root = Path(temp)
@@ -1387,6 +1514,15 @@ def main():
         lambda spec_dir: zero_sized_memory_region(spec_dir),
     )
 
+    expect_failure(
+        "invalid memory-map type",
+        lambda spec_dir: invalid_memory_map_type(spec_dir),
+    )
+    expect_failure(
+        "register extends beyond peripheral region",
+        lambda spec_dir: register_outside_region(spec_dir),
+    )
+    expect_gpio_yaml_register_runtime()
     expect_address_relocation()
     expect_register_relocation()
     expect_register_addition()
@@ -1532,6 +1668,21 @@ def invalid_mask(spec_dir):
     path = spec_dir / "gpio.yaml"
     data = load(path)
     data["registers"][0]["mask"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_memory_map_type(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["type"] = "flash-ish"
+    save(path, data)
+
+
+def register_outside_region(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    uart = next(entry for entry in data["memory_map"] if entry["name"] == "UART0")
+    uart["size"] = "0x10"
     save(path, data)
 
 
