@@ -41,10 +41,15 @@ public:
         RX_INTERRUPT = 1 << 1
     };
 
-    Uart(sc_core::sc_module_name name)
+    Uart(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -81,6 +86,8 @@ public:
     }
 
 private:
+    sc_core::sc_time transaction_latency_;
+
     uint32_t ctrl = generated::uart0::CTRL_RESET;
     uint32_t intr_state = generated::uart0::INTR_STATE_RESET;
     uint32_t intr_enable = generated::uart0::INTR_ENABLE_RESET;
@@ -165,10 +172,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
