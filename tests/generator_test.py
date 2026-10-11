@@ -503,6 +503,7 @@ def expect_interconnect_address_relocation():
 #include <tlm_utils/simple_target_socket.h>
 #include <tlm_utils/simple_initiator_socket.h>
 #include <cstdint>
+#include <vector>
 #include "model/interconnect/simple_interconnect.h"
 #include "model/peripherals/uart.h"
 
@@ -538,6 +539,7 @@ struct DummyTarget : sc_core::sc_module {
 struct Initiator : sc_core::sc_module {
     tlm_utils::simple_initiator_socket<Initiator> socket;
     bool passed = false;
+    std::vector<sc_core::sc_time> successful_delays;
 
     SC_CTOR(Initiator) : socket("socket") {
         SC_THREAD(run);
@@ -564,6 +566,8 @@ struct Initiator : sc_core::sc_module {
         sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
         socket->b_transport(trans, delay);
         if (trans.get_response_status() != expected) passed = false;
+        if (trans.get_response_status() == tlm::TLM_OK_RESPONSE)
+            successful_delays.push_back(delay);
     }
 
     void run() {
@@ -576,6 +580,12 @@ struct Initiator : sc_core::sc_module {
         // WDATA was moved from 0x0C to 0x20 in the mutated YAML.
         transact(0x50000020ULL, 0x141, tlm::TLM_OK_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
+        if (successful_delays.size() < 2 ||
+            successful_delays[1] <= successful_delays[0]) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
 
         // The first byte immediately beyond the declared region is unmapped.
         transact(0x50000024ULL, 0x145, tlm::TLM_ADDRESS_ERROR_RESPONSE);
@@ -691,6 +701,7 @@ int sc_main(int, char**) {
     print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
     print("[PASS] old UART base is unmapped after YAML relocation")
     print("[PASS] final in-range register and first-unmapped address boundary are enforced")
+    print("[PASS] overlapping TLM requests serialize on the shared interconnect")
     print("[PASS] DMI grant is clamped to generated SRAM range")
 
 
