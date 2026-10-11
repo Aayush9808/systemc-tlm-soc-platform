@@ -111,7 +111,7 @@ Historical local macOS measurements:
 - Separate 1M-operation DMI experiment: approximately 253.6x speedup over the corresponding TLM workload.
 - 5,000-iteration trace experiment: approximately 4.57x host-runtime overhead with tracing enabled.
 
-Current Release Linux CI measurement (Ubuntu 24.04.5, GCC 13.3.0, SystemC 2.3.4, AMD EPYC 9V45 runner): 2,006,000 bus transactions in 0.176150 s, 11.388 million transactions/s and 24,072 us simulated time. The paired 100 ns quantum-keeper experiment measured 0.172798 s baseline vs 0.078142 s quantum mode (~2.21x throughput), reducing synchronization count from 2,006,000 to 240,720 while preserving simulated time and checksum. Host results vary by runner; see docs/benchmark_report.md for the exact commands and evidence.
+Current Release Linux CI measurement (Ubuntu 24.04.5, GCC 13.3.0, SystemC 2.3.4, AMD EPYC 9V74 runner): 2,006,000 bus transactions in 0.279942 s, 7.166 million transactions/s and 24,072 us simulated time. The paired 100 ns quantum-keeper experiment measured 0.286907 s baseline vs 0.122872 s quantum mode (~2.33x throughput), reducing synchronization count from 2,006,000 to 240,720 while preserving simulated time and checksum. Host results vary by runner; see docs/benchmark_report.md for the exact commands and evidence.
 
 ## Timing
 
