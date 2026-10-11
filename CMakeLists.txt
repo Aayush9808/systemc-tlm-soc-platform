@@ -5,17 +5,32 @@ project(soc_platform LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(SYSTEMC_ROOT "/opt/homebrew/opt/systemc" CACHE PATH "SystemC installation prefix")
+# Optional installation prefix. If omitted, CMake also checks SYSTEMC_HOME,
+# common Homebrew prefixes, and its normal platform search paths.
+set(SYSTEMC_ROOT "" CACHE PATH "SystemC installation prefix")
+set(_SYSTEMC_HINTS)
+if(SYSTEMC_ROOT)
+    list(APPEND _SYSTEMC_HINTS "${SYSTEMC_ROOT}")
+endif()
+if(DEFINED ENV{SYSTEMC_HOME} AND NOT "$ENV{SYSTEMC_HOME}" STREQUAL "")
+    list(APPEND _SYSTEMC_HINTS "$ENV{SYSTEMC_HOME}")
+endif()
+list(APPEND _SYSTEMC_HINTS
+    /opt/homebrew/opt/systemc
+    /usr/local/opt/systemc
+)
 
 find_path(SYSTEMC_INCLUDE_DIR
     NAMES systemc
-    PATHS "${SYSTEMC_ROOT}/include"
+    HINTS ${_SYSTEMC_HINTS}
+    PATH_SUFFIXES include
     REQUIRED
 )
 
 find_library(SYSTEMC_LIBRARY
     NAMES systemc
-    PATHS "${SYSTEMC_ROOT}/lib"
+    HINTS ${_SYSTEMC_HINTS}
+    PATH_SUFFIXES lib lib64
     REQUIRED
 )
 
