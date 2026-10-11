@@ -99,3 +99,38 @@ jobs:
           print(f"Quantum DMI throughput: {dmi_throughput:.0f} operations/s")
           print(f"DMI speedup over quantum TLM: {dmi_throughput / quantum_throughput:.2f}x")
           PY
+
+      - name: Compare tracing overhead
+        run: |
+          ./build/soc_bench 100000 > /tmp/soc-trace-off.log
+          ./build/soc_bench 100000 --trace > /tmp/soc-trace-on.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          off = Path("/tmp/soc-trace-off.log").read_text()
+          on = Path("/tmp/soc-trace-on.log").read_text()
+
+          def value(output, label):
+              match = re.search(rf"^{re.escape(label)}:\s*(.+)$", output, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"missing trace benchmark metric: {label}")
+              return match.group(1).strip()
+
+          if "[TRACE]" in off or "[TRACE]" not in on:
+              raise SystemExit("trace flag did not enable/disable trace records correctly")
+          for label in ("Bus transactions", "Total operations", "Checksum"):
+              if value(off, label) != value(on, label):
+                  raise SystemExit(f"tracing changed {label}")
+          off_runtime = float(value(off, "Host runtime").split()[0])
+          on_runtime = float(value(on, "Host runtime").split()[0])
+          trace_records = on.count("[TRACE]")
+          if trace_records == 0:
+              raise SystemExit("trace-enabled run emitted no records")
+          print("Trace on/off consistency: PASS")
+          print(f"Trace records: {trace_records}")
+          print(f"Trace-off runtime: {off_runtime:.6f} s")
+          print(f"Trace-on runtime: {on_runtime:.6f} s")
+          if off_runtime > 0:
+              print(f"Observed trace runtime ratio: {on_runtime / off_runtime:.2f}x")
+          PY
