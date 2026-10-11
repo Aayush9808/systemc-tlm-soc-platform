@@ -7,6 +7,9 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <fstream>
+#include <stdexcept>
+#include <string>
 
 class SimpleMemory : public sc_core::sc_module {
 public:
@@ -15,11 +18,23 @@ public:
     explicit SimpleMemory(
         sc_core::sc_module_name name,
         std::size_t size = 1024 * 1024,
-        sc_core::sc_time latency = sc_core::sc_time(10, sc_core::SC_NS))
+        sc_core::sc_time latency = sc_core::sc_time(10, sc_core::SC_NS),
+        const std::string& image_path = std::string())
+        : SimpleMemory(name, size, latency, latency, image_path) {}
+
+    SimpleMemory(
+        sc_core::sc_module_name name,
+        std::size_t size,
+        sc_core::sc_time read_latency,
+        sc_core::sc_time write_latency,
+        const std::string& image_path = std::string())
         : sc_core::sc_module(name),
           socket("socket"),
           memory(size, 0),
-          latency(latency) {
+          read_latency_(read_latency),
+          write_latency_(write_latency) {
+
+        load_initialization_image(image_path);
 
         socket.register_b_transport(
             this,
@@ -42,7 +57,27 @@ public:
 
 private:
     std::vector<unsigned char> memory;
-    sc_core::sc_time latency;
+    sc_core::sc_time read_latency_;
+    sc_core::sc_time write_latency_;
+
+    void load_initialization_image(const std::string& image_path) {
+        if (image_path.empty()) return;
+
+        std::ifstream image(image_path, std::ios::binary | std::ios::ate);
+        if (!image) {
+            throw std::runtime_error("cannot open SRAM initialization image: " + image_path);
+        }
+        const std::streamoff image_size = image.tellg();
+        if (image_size < 0 || static_cast<uint64_t>(image_size) > memory.size()) {
+            throw std::runtime_error("SRAM initialization image exceeds configured SRAM size: " + image_path);
+        }
+        image.seekg(0, std::ios::beg);
+        if (image_size > 0 && !image.read(
+                reinterpret_cast<char*>(memory.data()),
+                static_cast<std::streamsize>(image_size))) {
+            throw std::runtime_error("failed to read SRAM initialization image: " + image_path);
+        }
+    }
 
     void b_transport(
         tlm::tlm_generic_payload& trans,
@@ -116,7 +151,7 @@ private:
             return;
         }
 
-        delay += latency;
+        delay += trans.is_read() ? read_latency_ : write_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
@@ -140,8 +175,8 @@ private:
         dmi_data.set_start_address(0);
         dmi_data.set_end_address(memory.size() - 1);
 
-        dmi_data.set_read_latency(latency);
-        dmi_data.set_write_latency(latency);
+        dmi_data.set_read_latency(read_latency_);
+        dmi_data.set_write_latency(write_latency_);
 
         dmi_data.allow_read_write();
 
