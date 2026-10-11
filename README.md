@@ -42,6 +42,8 @@ All firmware-visible accesses go through the memory-mapped interconnect. The int
 - Deterministic unsupported-command and unmapped-address errors.
 - Data-driven memory-map routing.
 - SRAM DMI with translated system address range.
+- ROM and SRAM binary initialization images with size/error validation.
+- Independent SRAM read/write latency and configurable interconnect/peripheral annotated latency.
 - Optional transaction tracing and per-target counters.
 - Functional-fast and timed-LT modes.
 - Event-driven simulated-time timer.
@@ -49,7 +51,7 @@ All firmware-visible accesses go through the memory-mapped interconnect. The int
 - Deterministic reset after simulated time advances.
 - YAML source-of-truth schema and deterministic code generation.
 - Generated register metadata, map constants, software headers and verification artifacts.
-- Unit/negative/integration verification and performance measurement.
+- Unit/negative/integration verification, generated register verification vectors, repeated-run determinism and performance measurement.
 
 ## Prerequisites
 
@@ -116,11 +118,11 @@ The timer uses SystemC simulated time, not host wall-clock time.
 
 specs/soc.yaml is the memory-map source of truth. Device YAML files define register metadata.
 
-The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, field identifiers/access/ranges/overlaps, overlapping memory ranges and uint64 address overflow.
+The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, field identifiers/access/ranges/overlaps, zero-sized/overlapping memory ranges and uint64 address overflow.
 
 Register fields (for example UART CTRL TX/RX) generate C++ bit offsets/widths/masks, firmware header macros, and human-readable verification summaries. The generated per-device dispatch functions are linked into the simulator, demo and benchmark and are called by each peripheral model for register decoding and access-policy checks.
 
-Generated output is kept under generated/. Handwritten behavioral models remain under model/. Existing-target base/size relocation is covered through the real TLM interconnect; adding a new target still requires a C++ socket, binding and dispatch case.
+Generated output is kept under generated/. Handwritten behavioral models remain under model/. Existing-target base/size relocation is covered through the real TLM interconnect, and peripheral/IRQ target bounds use the generated region sizes; adding a new target still requires a C++ socket, binding and dispatch case.
 
 ## Reproducible submission sequence
 
