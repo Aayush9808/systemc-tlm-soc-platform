@@ -6,6 +6,13 @@
 #include <iostream>
 #include <string>
 
+#include "../generated/include/soc_memory_map.h"
+#include "../generated/include/uart0.h"
+#include "../generated/include/gpio.h"
+#include "../generated/include/rv_timer.h"
+#include "../generated/include/spi_device.h"
+#include "../generated/include/irq.h"
+
 #include "../model/memory/simple_memory.h"
 #include "../model/memory/simple_rom.h"
 #include "../model/interconnect/simple_interconnect.h"
@@ -17,6 +24,7 @@
 
 class SocSim : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(SocSim);
     tlm_utils::simple_initiator_socket<SocSim> socket;
 
     sc_core::sc_signal<bool> timer_irq;
@@ -35,10 +43,23 @@ public:
     SimpleInterconnect bus;
 
     bool failed = false;
+    uint32_t observed_gpio_output = 0;
+    uint64_t gpio_output_notifications = 0;
 
     SocSim(
         sc_core::sc_module_name name,
-        bool functional_fast)
+        bool functional_fast,
+        const std::string& rom_image,
+        const std::string& sram_image,
+        uint64_t sram_read_latency_ns,
+        uint64_t sram_write_latency_ns,
+        uint64_t rom_latency_ns,
+        uint64_t uart_latency_ns,
+        uint64_t gpio_latency_ns,
+        uint64_t timer_latency_ns,
+        uint64_t spi_latency_ns,
+        uint64_t irq_latency_ns,
+        uint64_t interconnect_latency_ns)
         : sc_core::sc_module(name),
           socket("socket"),
           timer_irq("timer_irq"),
@@ -46,15 +67,21 @@ public:
           gpio_irq("gpio_irq"),
           uart_irq("uart_irq"),
           cpu_irq("cpu_irq"),
-          memory("memory"),
-          rom("rom"),
-          uart("uart"),
-          gpio("gpio"),
-          timer("timer"),
-          spi("spi"),
-          irq("irq"),
-          bus("bus"),
-          functional_fast_(functional_fast) {
+          memory(
+              "memory",
+              generated::SRAM_SIZE,
+              sc_core::sc_time(static_cast<double>(sram_read_latency_ns), sc_core::SC_NS),
+              sc_core::sc_time(static_cast<double>(sram_write_latency_ns), sc_core::SC_NS),
+              sram_image),
+          rom("rom", generated::ROM_SIZE, rom_image, sc_core::sc_time(static_cast<double>(rom_latency_ns), sc_core::SC_NS)),
+          uart("uart", sc_core::sc_time(static_cast<double>(uart_latency_ns), sc_core::SC_NS)),
+          gpio("gpio", sc_core::sc_time(static_cast<double>(gpio_latency_ns), sc_core::SC_NS)),
+          timer("timer", sc_core::sc_time(static_cast<double>(timer_latency_ns), sc_core::SC_NS)),
+          spi("spi", sc_core::sc_time(static_cast<double>(spi_latency_ns), sc_core::SC_NS)),
+          irq("irq", sc_core::sc_time(static_cast<double>(irq_latency_ns), sc_core::SC_NS)),
+          bus("bus", sc_core::sc_time(static_cast<double>(interconnect_latency_ns), sc_core::SC_NS)),
+          functional_fast_(functional_fast),
+          sram_image_(sram_image) {
 
         socket.bind(bus.target_socket);
 
@@ -77,11 +104,17 @@ public:
         irq.uart_irq(uart_irq);
         irq.cpu_irq(cpu_irq);
 
+        gpio.set_output_callback([this](uint32_t value) {
+            observed_gpio_output = value;
+            ++gpio_output_notifications;
+        });
+
         SC_THREAD(run);
     }
 
 private:
     bool functional_fast_;
+    std::string sram_image_;
 
     bool write32(
         uint64_t address,
@@ -171,7 +204,7 @@ private:
         for (char value : text) {
 
             write32(
-                0x4000000C,
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
                 static_cast<uint32_t>(
                     static_cast<unsigned char>(value)
                 )
@@ -203,7 +236,7 @@ private:
         uint32_t rom_value1 = 0;
 
         if (!read32(
-                0x00000000,
+                generated::ROM_BASE,
                 rom_value0)) {
 
             fail("ROM table entry 0 read failed");
@@ -211,7 +244,7 @@ private:
         }
 
         if (!read32(
-                0x00000004,
+                (generated::ROM_BASE + 0x4ULL),
                 rom_value1)) {
 
             fail("ROM table entry 1 read failed");
@@ -219,7 +252,7 @@ private:
         }
 
         if (!write32(
-                0x10000000,
+                generated::SRAM_BASE,
                 rom_value0)) {
 
             fail("SRAM table entry 0 write failed");
@@ -227,7 +260,7 @@ private:
         }
 
         if (!write32(
-                0x10000004,
+                (generated::SRAM_BASE + 0x4ULL),
                 rom_value1)) {
 
             fail("SRAM table entry 1 write failed");
@@ -238,7 +271,7 @@ private:
         uint32_t ram_value1 = 0;
 
         if (!read32(
-                0x10000000,
+                generated::SRAM_BASE,
                 ram_value0)) {
 
             fail("SRAM table entry 0 read failed");
@@ -246,7 +279,7 @@ private:
         }
 
         if (!read32(
-                0x10000004,
+                (generated::SRAM_BASE + 0x4ULL),
                 ram_value1)) {
 
             fail("SRAM table entry 1 read failed");
@@ -276,6 +309,19 @@ private:
             return false;
         }
 
+        // When an SRAM initialization image is supplied, the ROM copy only
+        // overwrites the first two words. Verify an independent image location
+        // so initialization behavior remains observable in the integrated run.
+        if (!sram_image_.empty()) {
+            uint32_t initialized_value = 0;
+            if (!read32(generated::SRAM_BASE + 0x100ULL, initialized_value) ||
+                initialized_value != 0x44332211U) {
+                fail("SRAM initialization image content mismatch at offset 0x100");
+                return false;
+            }
+            std::cout << "SRAM initialization image: PASS\n";
+        }
+
         uart_print(
             "ROM -> SRAM copy OK\n"
         );
@@ -292,7 +338,7 @@ private:
             << "\n=== GPIO OUTPUT SCENARIO ===\n";
 
         if (!write32(
-                0x40010010,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 0x0000000F)) {
 
             fail("GPIO output-enable configuration failed");
@@ -302,7 +348,7 @@ private:
         uint32_t oe = 0;
 
         if (!read32(
-                0x40010010,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 oe)) {
 
             fail("GPIO output-enable read failed");
@@ -316,7 +362,7 @@ private:
         }
 
         if (!write32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 0x00000001)) {
 
             fail("GPIO direct output write failed");
@@ -326,7 +372,7 @@ private:
         uint32_t output = 0;
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO direct output read failed");
@@ -340,7 +386,7 @@ private:
         }
 
         if (!write32(
-                0x40010008,
+                (generated::GPIO_BASE + generated::gpio::MASKED_OUT_LOWER_OFFSET),
                 0x00060004)) {
 
             fail("GPIO masked lower write failed");
@@ -348,7 +394,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO output read after masked write failed");
@@ -362,7 +408,7 @@ private:
         }
 
         if (!write32(
-                0x4001000C,
+                (generated::GPIO_BASE + generated::gpio::MASKED_OUT_UPPER_OFFSET),
                 0x00010001)) {
 
             fail("GPIO masked upper write failed");
@@ -370,7 +416,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 output)) {
 
             fail("GPIO output read after upper masked write failed");
@@ -401,15 +447,61 @@ private:
         return true;
     }
 
+    uint64_t find_unmapped_address() const {
+        // Start in a high region, then skip any generated range that covers
+        // the candidate. This keeps the negative test valid when YAML relocates
+        // a peripheral (including to the old hard-coded probe address).
+        uint64_t candidate = 0x80000000ULL;
+
+        for (unsigned int attempt = 0;
+             attempt <= generated::MEMORY_MAP_COUNT;
+             ++attempt) {
+            bool covered = false;
+
+            for (unsigned int i = 0;
+                 i < generated::MEMORY_MAP_COUNT;
+                 ++i) {
+                const auto& range = generated::MEMORY_MAP[i];
+                const uint64_t end = range.base + range.size;
+
+                if (candidate >= range.base && candidate < end) {
+                    candidate = end;
+                    covered = true;
+                    break;
+                }
+            }
+
+            if (!covered) {
+                return candidate;
+            }
+        }
+
+        // The validated map should always leave an unmapped address. Keep a
+        // deterministic invalid fallback if a future schema exhausts the map.
+        return UINT64_MAX;
+    }
+
     bool invalid_transaction_scenario() {
 
         std::cout
             << "\n=== INVALID TRANSACTION SCENARIO ===\n";
 
+        uint32_t rom_before = 0;
+        uint32_t rom_after = 0;
+        if (!read32(generated::ROM_BASE, rom_before) ||
+            write32(generated::ROM_BASE, 0xDEADBEEFu) ||
+            !read32(generated::ROM_BASE, rom_after) ||
+            rom_before != rom_after) {
+            fail("ROM write protection failed");
+            return false;
+        }
+        std::cout << "ROM write protection: PASS\\n";
+
         uint32_t value = 0;
+        const uint64_t invalid_address = find_unmapped_address();
 
         bool result = read32(
-            0x50000000,
+            invalid_address,
             value
         );
 
@@ -420,7 +512,9 @@ private:
         }
 
         std::cout
-            << "Unmapped address rejected: PASS\n";
+            << "Unmapped address 0x"
+            << std::hex << invalid_address << std::dec
+            << " rejected: PASS\n";
 
         return true;
     }
@@ -430,8 +524,153 @@ private:
         std::cout
             << "\n=== UART IRQ SCENARIO ===\n";
 
+        auto expect_uart_response = [this](
+            tlm::tlm_command command,
+            uint64_t address,
+            unsigned int length,
+            unsigned int streaming_width,
+            bool byte_enable,
+            tlm::tlm_response_status expected) {
+            unsigned char data[8] = {};
+            unsigned char enables[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+            tlm::tlm_generic_payload trans;
+            trans.set_command(command);
+            trans.set_address(address);
+            trans.set_data_ptr(data);
+            trans.set_data_length(length);
+            trans.set_streaming_width(streaming_width);
+            trans.set_byte_enable_ptr(byte_enable ? enables : nullptr);
+            trans.set_byte_enable_length(byte_enable ? 4 : 0);
+            sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+            socket->b_transport(trans, delay);
+            return trans.get_response_status() == expected;
+        };
+        if (!expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE + 1,
+                4, 4, false, tlm::TLM_GENERIC_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE,
+                2, 2, false, tlm::TLM_GENERIC_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE,
+                4, 4, true, tlm::TLM_BYTE_ENABLE_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_IGNORE_COMMAND, generated::UART0_BASE,
+                4, 4, false, tlm::TLM_COMMAND_ERROR_RESPONSE)) {
+            fail("UART alignment/length/byte-enable/command policy failed");
+            return false;
+        }
+        std::cout << "UART invalid alignment/length/byte-enable/command policy: PASS\\n";
+
+        // STATUS is schema-declared RO: a write must not alter
+        // the value observed by a subsequent read.
+        uint32_t uart_status_before = 0;
+        uint32_t uart_status_after = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                uart_status_before) ||
+            write32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                0) ||
+            !read32(
+                (generated::UART0_BASE + generated::uart0::STATUS_OFFSET),
+                uart_status_after) ||
+            uart_status_before != uart_status_after) {
+            fail("UART read-only STATUS register changed after write");
+            return false;
+        }
+
         if (!write32(
-                0x40000000,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                0xFFFFFFFFu)) {
+            fail("UART control mask write failed");
+            return false;
+        }
+
+        uint32_t uart_control = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                uart_control) ||
+            uart_control != 0x3u) {
+            fail("UART control register mask was not applied");
+            return false;
+        }
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                0)) {
+            fail("UART control reset before RX scenario failed");
+            return false;
+        }
+
+        // RX must ignore injected bytes while disabled.
+        uart.inject_rx('X');
+        uint32_t uart_fifo_status = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART accepted RX stimulus while RX was disabled");
+            return false;
+        }
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
+                2)) {
+            fail("UART RX enable failed");
+            return false;
+        }
+        uart.inject_rx('D');
+        wait(sc_core::SC_ZERO_TIME);
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 1 ||
+            !write32(
+                (generated::UART0_BASE + generated::uart0::FIFO_CTRL_OFFSET),
+                2) ||
+            !read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART RX FIFO reset did not clear queued data");
+            return false;
+        }
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
+                2)) {
+            fail("UART RX interrupt clear after FIFO reset failed");
+            return false;
+        }
+
+        uart.inject_rx('R');
+        wait(sc_core::SC_ZERO_TIME);
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 1) {
+            fail("UART RX FIFO occupancy did not reflect injected byte");
+            return false;
+        }
+        uint32_t uart_rx_value = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::RDATA_OFFSET),
+                uart_rx_value) ||
+            uart_rx_value != static_cast<uint32_t>('R')) {
+            fail("UART RDATA did not dequeue the injected byte");
+            return false;
+        }
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART RX FIFO occupancy did not clear after RDATA read");
+            return false;
+        }
+        std::cout << "UART RX injection, FIFO reset, occupancy and dequeue: PASS\\n";
+
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 1)) {
 
             fail("UART TX enable failed");
@@ -439,7 +678,7 @@ private:
         }
 
         if (!write32(
-                0x4000001C,
+                (generated::UART0_BASE + generated::uart0::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("UART interrupt enable failed");
@@ -447,15 +686,23 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 8)) {
 
             fail("UART IRQ controller enable failed");
             return false;
         }
 
+        uint32_t uart_write_only_value = 0;
+        if (read32(
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
+                uart_write_only_value)) {
+            fail("UART write-only WDATA register unexpectedly allowed reads");
+            return false;
+        }
+
         if (!write32(
-                0x4000000C,
+                (generated::UART0_BASE + generated::uart0::WDATA_OFFSET),
                 'A')) {
 
             fail("UART TX failed");
@@ -471,7 +718,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("UART IRQ claim failed");
@@ -485,15 +732,24 @@ private:
         }
 
         if (!write32(
-                0x40000018,
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
                 1)) {
 
             fail("UART interrupt clear failed");
             return false;
         }
 
+        uint32_t uart_intr_state = 0;
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
+                uart_intr_state) ||
+            (uart_intr_state & 1u) != 0) {
+            fail("UART W1C interrupt state did not clear");
+            return false;
+        }
+
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("UART IRQ complete failed");
@@ -518,7 +774,7 @@ private:
             << "\n=== GPIO IRQ SCENARIO ===\n";
 
         if (!write32(
-                0x40010024,
+                (generated::GPIO_BASE + generated::gpio::INTR_RISE_OFFSET),
                 1)) {
 
             fail("GPIO rise configuration failed");
@@ -526,7 +782,7 @@ private:
         }
 
         if (!write32(
-                0x40010020,
+                (generated::GPIO_BASE + generated::gpio::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("GPIO interrupt enable failed");
@@ -534,7 +790,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 4)) {
 
             fail("GPIO IRQ controller enable failed");
@@ -550,7 +806,7 @@ private:
         uint32_t state = 0;
 
         if (!read32(
-                0x4001001C,
+                (generated::GPIO_BASE + generated::gpio::INTR_STATE_OFFSET),
                 state)) {
 
             fail("GPIO interrupt state read failed");
@@ -572,7 +828,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("GPIO IRQ claim failed");
@@ -591,24 +847,42 @@ private:
             return false;
         }
 
+        // Clear the peripheral source before completing the controller
+        // claim. If the source is still asserted at completion, it can
+        // legitimately re-pend at the interrupt controller.
         if (!write32(
-                0x4004000C,
-                claim)) {
-
-            fail("GPIO IRQ complete failed");
-            return false;
-        }
-
-        if (!write32(
-                0x4001001C,
+                (generated::GPIO_BASE + generated::gpio::INTR_STATE_OFFSET),
                 1)) {
 
             fail("GPIO interrupt clear failed");
             return false;
         }
 
+        wait(sc_core::SC_ZERO_TIME);
+
+        if (!write32(
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
+                claim)) {
+
+            fail("GPIO IRQ complete failed");
+            return false;
+        }
+
+        wait(sc_core::SC_ZERO_TIME);
+
+        uint32_t irq_pending_after_complete = 0;
+        if (!read32(
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
+                irq_pending_after_complete) ||
+            (irq_pending_after_complete & claim) != 0 ||
+            cpu_irq.read()) {
+
+            fail("GPIO IRQ re-pended after source clear and completion");
+            return false;
+        }
+
         std::cout
-            << "GPIO rising edge -> IRQ -> claim -> complete: PASS\n";
+            << "GPIO rising edge -> IRQ -> claim -> source clear -> complete: PASS\\n";
 
         return true;
     }
@@ -619,7 +893,7 @@ private:
             << "\n=== TIMER IRQ SCENARIO ===\n";
 
         if (!write32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 1)) {
 
             fail("timer configuration failed");
@@ -627,7 +901,7 @@ private:
         }
 
         if (!write32(
-                0x40020008,
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
                 0)) {
 
             fail("timer lower reset failed");
@@ -635,7 +909,7 @@ private:
         }
 
         if (!write32(
-                0x4002000C,
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
                 0)) {
 
             fail("timer upper reset failed");
@@ -643,7 +917,7 @@ private:
         }
 
         if (!write32(
-                0x40020010,
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
                 5)) {
 
             fail("timer compare lower failed");
@@ -651,7 +925,7 @@ private:
         }
 
         if (!write32(
-                0x40020014,
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
                 0)) {
 
             fail("timer compare upper failed");
@@ -659,7 +933,7 @@ private:
         }
 
         if (!write32(
-                0x4002001C,
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("timer interrupt enable failed");
@@ -667,7 +941,7 @@ private:
         }
 
         if (!write32(
-                0x40020000,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 1)) {
 
             fail("timer start failed");
@@ -675,7 +949,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 1)) {
 
             fail("timer IRQ controller enable failed");
@@ -690,7 +964,7 @@ private:
         uint32_t timer_low = 0;
 
         if (!read32(
-                0x40020008,
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
                 timer_low)) {
 
             fail("timer value read failed");
@@ -705,7 +979,7 @@ private:
         uint32_t intr_state = 0;
 
         if (!read32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 intr_state)) {
 
             fail("timer interrupt state read failed");
@@ -727,7 +1001,7 @@ private:
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("timer IRQ claim failed");
@@ -747,7 +1021,7 @@ private:
         }
 
         if (!write32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 1)) {
 
             fail("timer interrupt clear failed");
@@ -755,7 +1029,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("timer IRQ complete failed");
@@ -764,6 +1038,111 @@ private:
 
         std::cout
             << "Timer compare -> IRQ -> claim -> clear -> complete: PASS\n";
+
+        // Exercise the documented split-counter read protocol across a
+        // low-word rollover. The upper word paired with TIMER_V_LOWER must
+        // come from the same sampled 64-bit value, not a later live read.
+        // Stop the timer while seeding the counter so this setup is
+        // deterministic in both timed-LT and functional-fast modes.
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                0xFFFFFFFEu)) {
+            fail("timer rollover test setup failed");
+            return false;
+        }
+
+        uint32_t sampled_low = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                sampled_low) ||
+            sampled_low != 0xFFFFFFFEu) {
+            fail("timer rollover test did not capture expected low word");
+            return false;
+        }
+
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                1)) {
+            fail("timer rollover test start failed");
+            return false;
+        }
+
+        // Three 10 ns timer ticks cross from 0x00000000_FFFFFFFE into
+        // 0x00000001_00000001 while the captured upper half stays coherent.
+        wait(30, sc_core::SC_NS);
+
+        uint32_t coherent_upper = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                coherent_upper) ||
+            coherent_upper != 0) {
+            fail("timer split read returned incoherent upper word");
+            return false;
+        }
+
+        uint32_t live_upper = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                live_upper) ||
+            live_upper != 1) {
+            fail("timer counter did not roll over to upper word 1");
+            return false;
+        }
+
+        std::cout
+            << "Timer split-read coherency across 32-bit rollover: PASS\n";
+
+        // CFG0 high half is the prescaler and low half is the increment step.
+        // A 2x prescaler and step 3 should advance by six over 40 ns.
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
+                (2u << 16) | 3u) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                1)) {
+            fail("timer prescaler/step setup failed");
+            return false;
+        }
+        wait(40, sc_core::SC_NS);
+        uint32_t stepped_value = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                stepped_value) ||
+            stepped_value != 6) {
+            fail("timer prescaler/step semantics mismatch");
+            return false;
+        }
+        std::cout << "Timer prescaler=2, step=3 semantics: PASS\\n";
 
         return true;
     }
@@ -774,7 +1153,7 @@ private:
             << "\n=== SPI SCENARIO ===\n";
 
         if (!write32(
-                0x40030000,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 1)) {
 
             fail("SPI enable failed");
@@ -782,7 +1161,7 @@ private:
         }
 
         if (!write32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 0)) {
 
             fail("SPI configuration failed");
@@ -790,7 +1169,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 2)) {
 
             fail("SPI IRQ controller enable failed");
@@ -798,7 +1177,7 @@ private:
         }
 
         if (!write32(
-                0x4003000C,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
                 0x55)) {
 
             fail("SPI TX failed");
@@ -814,7 +1193,7 @@ private:
         uint32_t status = 0;
 
         if (!read32(
-                0x40030008,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
                 status)) {
 
             fail("SPI status read failed");
@@ -830,7 +1209,7 @@ private:
         uint32_t rx = 0;
 
         if (!read32(
-                0x40030010,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::RX_OFFSET),
                 rx)) {
 
             fail("SPI RX failed");
@@ -843,10 +1222,57 @@ private:
             return false;
         }
 
+        // CFG bit 0 selects loopback, so changing configuration must change
+        // the received stream rather than only changing a stored register.
+        if (!write32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
+                1) ||
+            !write32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
+                0x5A)) {
+            fail("SPI loopback configuration/transfer failed");
+            return false;
+        }
+        uint32_t loopback_rx = 0;
+        if (!read32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::RX_OFFSET),
+                loopback_rx) ||
+            (loopback_rx & 0xFFu) != 0x5Au) {
+            fail("SPI CFG loopback setting did not change transfer behavior");
+            return false;
+        }
+        std::cout << "SPI CFG loopback changes transfer behavior: PASS\\n";
+
+        // The reduced model completes each TX transfer synchronously. More
+        // than FIFO_SIZE writes must therefore not leave the TX FIFO stuck
+        // full; RX should independently saturate at its own capacity.
+        for (uint32_t i = 0; i < 20; ++i) {
+            if (!write32(
+                    (generated::SPI_DEVICE_BASE + generated::spi_device::TX_OFFSET),
+                    i)) {
+                fail("SPI repeated TX write failed");
+                return false;
+            }
+        }
+
+        if (!read32(
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
+                status)) {
+            fail("SPI FIFO status read failed");
+            return false;
+        }
+
+        if ((status & (1u << 0)) == 0 ||
+            (status & (1u << 2)) == 0 ||
+            (status & (1u << 3)) == 0) {
+            fail("SPI TX did not drain or RX FIFO did not saturate correctly");
+            return false;
+        }
+
         uint32_t claim = 0;
 
         if (!read32(
-                0x40040008,
+                (generated::IRQ_BASE + generated::irq::CLAIM_OFFSET),
                 claim)) {
 
             fail("SPI IRQ claim failed");
@@ -860,7 +1286,7 @@ private:
         }
 
         if (!write32(
-                0x4004000C,
+                (generated::IRQ_BASE + generated::irq::COMPLETE_OFFSET),
                 claim)) {
 
             fail("SPI IRQ complete failed");
@@ -892,7 +1318,7 @@ private:
             << "\n=== RESET SCENARIO ===\n";
 
         if (!write32(
-                0x10000000,
+                generated::SRAM_BASE,
                 0xDEADBEEF)) {
 
             fail("failed to create SRAM reset state");
@@ -900,7 +1326,7 @@ private:
         }
 
         if (!write32(
-                0x40010010,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 0x0000000F)) {
 
             fail("failed to create GPIO reset state");
@@ -908,15 +1334,23 @@ private:
         }
 
         if (!write32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 0x00000055)) {
 
             fail("failed to create GPIO output state");
             return false;
         }
 
+        if (observed_gpio_output != 0x00000055) {
+            fail("GPIO output observer did not receive output update");
+            return false;
+        }
+
+        const uint64_t notifications_before_reset =
+            gpio_output_notifications;
+
         if (!write32(
-                0x40000000,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 1)) {
 
             fail("failed to create UART reset state");
@@ -924,7 +1358,7 @@ private:
         }
 
         if (!write32(
-                0x40030000,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 1)) {
 
             fail("failed to create SPI reset state");
@@ -932,7 +1366,7 @@ private:
         }
 
         if (!write32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 1)) {
 
             fail("failed to create SPI config state");
@@ -940,7 +1374,7 @@ private:
         }
 
         if (!write32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 1)) {
 
             fail("failed to create timer reset state");
@@ -948,15 +1382,21 @@ private:
         }
 
         if (!write32(
-                0x40020010,
-                100)) {
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                100) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                2) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                1)) {
 
-            fail("failed to create timer compare state");
+            fail("failed to create timer compare/counter reset state");
             return false;
         }
 
         if (!write32(
-                0x4002001C,
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
                 1)) {
 
             fail("failed to create timer interrupt state");
@@ -964,7 +1404,7 @@ private:
         }
 
         if (!write32(
-                0x40020000,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 1)) {
 
             fail("failed to start timer");
@@ -972,7 +1412,7 @@ private:
         }
 
         if (!write32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 0x0F)) {
 
             fail("failed to create IRQ controller state");
@@ -984,6 +1424,29 @@ private:
             sc_core::SC_NS
         );
 
+        uint32_t pending_before_reset = 0;
+        if (!spi_irq.read() ||
+            !read32(
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
+                pending_before_reset) ||
+            (pending_before_reset & 0x2u) == 0 ||
+            !cpu_irq.read()) {
+            fail("reset scenario did not establish an active/pending SPI interrupt");
+            return false;
+        }
+        std::cout << "Reset precondition: active SPI source and pending CPU IRQ: PASS\\n";
+
+        // Leave a valid split-counter read latch containing upper word 1.
+        // Reset must invalidate that stale sample before the post-reset
+        // upper-word read below returns the reset value 0.
+        uint32_t pre_reset_timer_low = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                pre_reset_timer_low)) {
+            fail("failed to seed timer split-read latch before reset");
+            return false;
+        }
+
         sc_core::sc_time reset_time =
             sc_core::sc_time_stamp();
 
@@ -992,7 +1455,7 @@ private:
         uint32_t value = 0;
 
         if (!read32(
-                0x10000000,
+                generated::SRAM_BASE,
                 value) ||
             value != 0) {
 
@@ -1001,7 +1464,7 @@ private:
         }
 
         if (!read32(
-                0x40010004,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1009,8 +1472,14 @@ private:
             return false;
         }
 
+        if (observed_gpio_output != 0 ||
+            gpio_output_notifications <= notifications_before_reset) {
+            fail("GPIO reset did not notify output observer");
+            return false;
+        }
+
         if (!read32(
-                0x40010010,
+                (generated::GPIO_BASE + generated::gpio::DIRECT_OE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1019,7 +1488,7 @@ private:
         }
 
         if (!read32(
-                0x40000000,
+                (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1028,7 +1497,7 @@ private:
         }
 
         if (!read32(
-                0x40000018,
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1037,7 +1506,7 @@ private:
         }
 
         if (!read32(
-                0x40030000,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CONTROL_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1046,7 +1515,7 @@ private:
         }
 
         if (!read32(
-                0x40030004,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1055,7 +1524,7 @@ private:
         }
 
         if (!read32(
-                0x40030008,
+                (generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET),
                 value) ||
             value != 0x5) {
 
@@ -1064,7 +1533,7 @@ private:
         }
 
         if (!read32(
-                0x40020000,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1073,7 +1542,7 @@ private:
         }
 
         if (!read32(
-                0x40020004,
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1082,16 +1551,47 @@ private:
         }
 
         if (!read32(
-                0x40020010,
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
                 value) ||
             value != 0) {
-
-            fail("timer compare was not reset");
+            fail("timer lower counter was not reset");
             return false;
         }
 
         if (!read32(
-                0x40020018,
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer upper counter or stale read latch was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer compare lower was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer compare upper was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
+                value) ||
+            value != 0) {
+            fail("timer interrupt enable was not reset");
+            return false;
+        }
+
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_STATE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1100,7 +1600,7 @@ private:
         }
 
         if (!read32(
-                0x40040000,
+                (generated::IRQ_BASE + generated::irq::PENDING_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1109,7 +1609,7 @@ private:
         }
 
         if (!read32(
-                0x40040004,
+                (generated::IRQ_BASE + generated::irq::ENABLE_OFFSET),
                 value) ||
             value != 0) {
 
@@ -1140,6 +1640,8 @@ private:
 
         std::cout
             << "SRAM, GPIO, UART, Timer, SPI and IRQ state cleared\n";
+        std::cout
+            << "GPIO output observer stayed synchronized through reset: PASS\n";
 
         std::cout
             << "RESET SCENARIO: PASS\n";
@@ -1205,6 +1707,23 @@ int sc_main(
 
     std::string scenario = "boot";
     std::string timing = "timed-lt";
+    std::string rom_image;
+    std::string sram_image;
+    uint64_t sram_read_latency_ns = 10;
+    uint64_t sram_write_latency_ns = 10;
+    uint64_t rom_latency_ns = 10;
+    uint64_t peripheral_latency_ns = 10;
+    uint64_t uart_latency_ns = 10;
+    uint64_t gpio_latency_ns = 10;
+    uint64_t timer_latency_ns = 10;
+    uint64_t spi_latency_ns = 10;
+    uint64_t irq_latency_ns = 10;
+    bool uart_latency_override = false;
+    bool gpio_latency_override = false;
+    bool timer_latency_override = false;
+    bool spi_latency_override = false;
+    bool irq_latency_override = false;
+    uint64_t interconnect_latency_ns = 2;
 
     for (int i = 1; i < argc; ++i) {
 
@@ -1220,6 +1739,103 @@ int sc_main(
                  i + 1 < argc) {
 
             timing = argv[++i];
+        }
+        else if (arg == "--rom-image" &&
+                 i + 1 < argc) {
+
+            rom_image = argv[++i];
+        }
+        else if (arg == "--rom-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                rom_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --rom-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--sram-image" &&
+                 i + 1 < argc) {
+
+            sram_image = argv[++i];
+        }
+        else if (arg == "--sram-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                sram_read_latency_ns = std::stoull(argv[++i]);
+                sram_write_latency_ns = sram_read_latency_ns;
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --sram-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--sram-read-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                sram_read_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --sram-read-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--sram-write-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                sram_write_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --sram-write-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--interconnect-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                interconnect_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --interconnect-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--peripheral-latency-ns" &&
+                 i + 1 < argc) {
+
+            try {
+                peripheral_latency_ns = std::stoull(argv[++i]);
+            }
+            catch (const std::exception&) {
+                std::cerr << "Invalid --peripheral-latency-ns value\\n";
+                return 1;
+            }
+        }
+        else if (arg == "--uart-latency-ns" && i + 1 < argc) {
+            try { uart_latency_ns = std::stoull(argv[++i]); uart_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --uart-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--gpio-latency-ns" && i + 1 < argc) {
+            try { gpio_latency_ns = std::stoull(argv[++i]); gpio_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --gpio-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--timer-latency-ns" && i + 1 < argc) {
+            try { timer_latency_ns = std::stoull(argv[++i]); timer_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --timer-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--spi-latency-ns" && i + 1 < argc) {
+            try { spi_latency_ns = std::stoull(argv[++i]); spi_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --spi-latency-ns value\\n"; return 1; }
+        }
+        else if (arg == "--irq-latency-ns" && i + 1 < argc) {
+            try { irq_latency_ns = std::stoull(argv[++i]); irq_latency_override = true; }
+            catch (const std::exception&) { std::cerr << "Invalid --irq-latency-ns value\\n"; return 1; }
         }
     }
 
@@ -1265,9 +1881,26 @@ int sc_main(
         << timing
         << "\n";
 
+    if (!uart_latency_override) uart_latency_ns = peripheral_latency_ns;
+    if (!gpio_latency_override) gpio_latency_ns = peripheral_latency_ns;
+    if (!timer_latency_override) timer_latency_ns = peripheral_latency_ns;
+    if (!spi_latency_override) spi_latency_ns = peripheral_latency_ns;
+    if (!irq_latency_override) irq_latency_ns = peripheral_latency_ns;
+
     SocSim soc(
         "soc",
-        functional_fast
+        functional_fast,
+        rom_image,
+        sram_image,
+        sram_read_latency_ns,
+        sram_write_latency_ns,
+        rom_latency_ns,
+        uart_latency_ns,
+        gpio_latency_ns,
+        timer_latency_ns,
+        spi_latency_ns,
+        irq_latency_ns,
+        interconnect_latency_ns
     );
 
     sc_core::sc_start();

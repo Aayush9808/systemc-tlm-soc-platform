@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 import tempfile
 import yaml
@@ -9,6 +10,11 @@ SPEC_DIR = ROOT / "specs"
 OUT_DIR = ROOT / "generated"
 
 VALID_ACCESS = {"RO", "RW", "WO", "W1C"}
+IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_cpp_identifier(value):
+    return isinstance(value, str) and IDENTIFIER_PATTERN.fullmatch(value) is not None
 
 
 def load_yaml(path):
@@ -68,8 +74,21 @@ def validate_soc(data, path):
         base = numeric_value(entry["base"], f"{prefix}.base")
         size = numeric_value(entry["size"], f"{prefix}.size")
 
-        if not name:
-            raise ValueError(f"{prefix}: name cannot be empty")
+        if not is_cpp_identifier(name):
+            raise ValueError(
+                f"{prefix}: name must be a valid C++ identifier"
+            )
+
+        allowed_types = {"rom", "ram", "peripheral"}
+
+        if (
+            not isinstance(entry["type"], str)
+            or entry["type"] not in allowed_types
+        ):
+            raise ValueError(
+                f"{prefix}: type must be one of "
+                f"{', '.join(sorted(allowed_types))}"
+            )
 
         if name in names:
             raise ValueError(
@@ -88,7 +107,7 @@ def validate_soc(data, path):
 
         end = base + size
 
-        if end > 0x10000000000000000:
+        if end > 0xFFFFFFFFFFFFFFFF:
             raise ValueError(
                 f"{prefix}: address range overflows uint64"
             )
@@ -128,6 +147,11 @@ def validate_device(data, path):
             f"{path}: device missing 'name'"
         )
 
+    if not is_cpp_identifier(device["name"]):
+        raise ValueError(
+            f"{path}: device name must be a valid C++ identifier"
+        )
+
     registers = data["registers"]
 
     if not isinstance(registers, list):
@@ -159,9 +183,9 @@ def validate_device(data, path):
         )
         access = reg["access"]
 
-        if not name:
+        if not is_cpp_identifier(name):
             raise ValueError(
-                f"{prefix}: name cannot be empty"
+                f"{prefix}: name must be a valid C++ identifier"
             )
 
         if name in names:
@@ -180,13 +204,18 @@ def validate_device(data, path):
                 f"{prefix}: offset cannot be negative"
             )
 
+        if offset > 0xFFFFFFFF:
+            raise ValueError(
+                f"{prefix}: offset must fit in 32 bits"
+            )
+
         if offset % 4 != 0:
             raise ValueError(
                 f"{prefix}: offset {hex_value(offset)} "
                 f"is not 4-byte aligned"
             )
 
-        if access not in VALID_ACCESS:
+        if not isinstance(access, str) or access not in VALID_ACCESS:
             raise ValueError(
                 f"{prefix}: invalid access '{access}'. "
                 f"Expected one of {sorted(VALID_ACCESS)}"
@@ -214,6 +243,43 @@ def validate_device(data, path):
                     f"{prefix}.mask: must fit in 32 bits"
                 )
 
+        fields = reg.get("fields", [])
+        if not isinstance(fields, list):
+            raise ValueError(f"{prefix}.fields: must be a list")
+
+        field_names = set()
+        occupied_bits = 0
+        for field_index, field in enumerate(fields):
+            field_prefix = f"{prefix}.fields[{field_index}]"
+            if not isinstance(field, dict):
+                raise ValueError(f"{field_prefix}: must be a mapping")
+            for required_field in ("name", "bit_offset", "bit_width", "access"):
+                if required_field not in field:
+                    raise ValueError(f"{field_prefix}: missing '{required_field}'")
+
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{field_prefix}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{field_prefix}.bit_width")
+            field_access = field["access"]
+            if not is_cpp_identifier(field_name):
+                raise ValueError(f"{field_prefix}: invalid field identifier")
+            if field_name in field_names:
+                raise ValueError(f"{prefix}: duplicate field name '{field_name}'")
+            if bit_offset < 0 or bit_offset > 31:
+                raise ValueError(f"{field_prefix}.bit_offset: must be between 0 and 31")
+            if bit_width < 1 or bit_width > 32:
+                raise ValueError(f"{field_prefix}.bit_width: must be between 1 and 32")
+            if bit_offset + bit_width > 32:
+                raise ValueError(f"{field_prefix}: field exceeds 32-bit register width")
+            if not isinstance(field_access, str) or field_access not in VALID_ACCESS:
+                raise ValueError(f"{field_prefix}.access: invalid access '{field_access}'")
+
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            if occupied_bits & field_mask:
+                raise ValueError(f"{prefix}: field '{field_name}' overlaps another field")
+            occupied_bits |= field_mask
+            field_names.add(field_name)
+
         names.add(name)
         offsets.add(offset)
 
@@ -228,6 +294,7 @@ def validate_all():
         "gpio.yaml",
         "rv_timer.yaml",
         "spi_device.yaml",
+        "irq.yaml",
     ]
 
     device_data = {}
@@ -237,6 +304,42 @@ def validate_all():
         data = load_yaml(path)
         validate_device(data, path)
         device_data[filename] = data
+
+    # Every peripheral register must fit inside its declared SoC region.
+    memory_map = {
+        entry["name"]: entry
+        for entry in soc_data["memory_map"]
+    }
+
+    for filename, data in device_data.items():
+        device_name = data["device"]["name"]
+        spec_path = SPEC_DIR / filename
+
+        if device_name not in memory_map:
+            raise ValueError(
+                f"{spec_path}: device '{device_name}' "
+                "has no matching SoC memory-map entry"
+            )
+
+        region = memory_map[device_name]
+        region_size = numeric_value(
+            region["size"],
+            f"{spec_path}: memory-map size"
+        )
+
+        for index, reg in enumerate(data["registers"]):
+            offset = numeric_value(
+                reg["offset"],
+                f"{spec_path}: registers[{index}].offset"
+            )
+
+            if offset + 4 > region_size:
+                raise ValueError(
+                    f"{spec_path}: register '{reg['name']}' at "
+                    f"{hex_value(offset)} extends beyond "
+                    f"the '{device_name}' region "
+                    f"(size {hex_value(region_size)})"
+                )
 
     return soc_data, device_data
 
@@ -316,6 +419,14 @@ def generate_soc_map(data):
         "constexpr unsigned int MEMORY_MAP_COUNT =",
         "    sizeof(MEMORY_MAP) / sizeof(MEMORY_MAP[0]);",
         "",
+        "inline const MemoryRange* find_memory_range(TargetId target) {",
+        "    for (unsigned int i = 0; i < MEMORY_MAP_COUNT; ++i) {",
+        "        if (MEMORY_MAP[i].target == target)",
+        "            return &MEMORY_MAP[i];",
+        "    }",
+        "    return nullptr;",
+        "}",
+        "",
         "}",
         "",
     ])
@@ -324,19 +435,11 @@ def generate_soc_map(data):
     print(f"generated: {output}")
 
 
-def generate_device_header(data):
-    device_name = data["device"]["name"]
-    namespace_name = device_name.lower()
 
-    output = (
-        OUT_DIR /
-        "include" /
-        f"{namespace_name}.h"
-    )
-
+def generate_register_metadata_header():
+    output = OUT_DIR / "include" / "register_metadata.h"
     output.parent.mkdir(parents=True, exist_ok=True)
-
-    lines = [
+    output.write_text("\n".join([
         "#pragma once",
         "",
         "#include <cstdint>",
@@ -357,6 +460,74 @@ def generate_device_header(data):
         "    uint32_t mask;",
         "    RegisterAccess access;",
         "};",
+        "",
+        "inline const RegisterMetadata* lookup_register(",
+        "    const RegisterMetadata* registers,",
+        "    unsigned int count,",
+        "    uint32_t offset) {",
+        "    for (unsigned int i = 0; i < count; ++i) {",
+        "        if (registers[i].offset == offset)",
+        "            return &registers[i];",
+        "    }",
+        "    return nullptr;",
+        "}",
+        "",
+        "inline bool register_read_allowed(const RegisterMetadata& reg) {",
+        "    return reg.access == RegisterAccess::RO ||",
+        "           reg.access == RegisterAccess::RW ||",
+        "           reg.access == RegisterAccess::W1C;",
+        "}",
+        "",
+        "inline bool register_write_allowed(const RegisterMetadata& reg) {",
+        "    return reg.access == RegisterAccess::RW ||",
+        "           reg.access == RegisterAccess::WO ||",
+        "           reg.access == RegisterAccess::W1C;",
+        "}",
+        "",
+        "inline uint32_t apply_register_mask(",
+        "    const RegisterMetadata& reg, uint32_t value) {",
+        "    return value & reg.mask;",
+        "}",
+        "",
+        "inline uint32_t load_register_value(const unsigned char* data) {",
+        "    return static_cast<uint32_t>(data[0]) |",
+        "           (static_cast<uint32_t>(data[1]) << 8) |",
+        "           (static_cast<uint32_t>(data[2]) << 16) |",
+        "           (static_cast<uint32_t>(data[3]) << 24);",
+        "}",
+        "",
+        "inline void store_register_value(unsigned char* data, uint32_t value) {",
+        "    data[0] = value & 0xff;",
+        "    data[1] = (value >> 8) & 0xff;",
+        "    data[2] = (value >> 16) & 0xff;",
+        "    data[3] = (value >> 24) & 0xff;",
+        "}",
+        "",
+        "}",
+        "",
+    ]))
+    print(f"generated: {output}")
+
+
+def generate_device_header(data):
+    device_name = data["device"]["name"]
+    namespace_name = device_name.lower()
+
+    output = (
+        OUT_DIR /
+        "include" /
+        f"{namespace_name}.h"
+    )
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "#pragma once",
+        "",
+        "#include <cstdint>",
+        '#include "register_metadata.h"',
+        "",
+        "namespace generated {",
         "",
         f"namespace {namespace_name} {{",
         "",
@@ -402,6 +573,15 @@ def generate_device_header(data):
             f'"{access}";'
         )
 
+        for field in reg.get("fields", []):
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg_name}.{field_name}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg_name}.{field_name}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_BIT_OFFSET = {bit_offset};")
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_BIT_WIDTH = {bit_width};")
+            lines.append(f"constexpr uint32_t {reg_name}_{field_name}_MASK = {hex_value(field_mask)};")
+
         lines.append("")
 
     lines.append(
@@ -441,6 +621,10 @@ def generate_device_header(data):
         "",
         "constexpr unsigned int REGISTER_COUNT =",
         "    sizeof(REGISTERS) / sizeof(REGISTERS[0]);",
+        "",
+        "const RegisterMetadata* find_register(uint32_t offset);",
+        "bool allows_read(const RegisterMetadata& reg);",
+        "bool allows_write(const RegisterMetadata& reg);",
         "",
         "}",
         "}",
@@ -547,6 +731,15 @@ def generate_software_header(data):
             f"{hex_value(mask)}"
         )
 
+        for field in reg.get("fields", []):
+            field_name = field["name"]
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg_name}.{field_name}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg_name}.{field_name}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_BIT_OFFSET {bit_offset}")
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_BIT_WIDTH {bit_width}")
+            lines.append(f"#define {prefix}_{reg_name}_{field_name}_MASK {hex_value(field_mask)}")
+
     lines.extend([
         "",
         "#endif",
@@ -567,42 +760,43 @@ def generate_device_docs(data):
     lines = [
         f"# {device_name}",
         "",
-        f"- Version: "
-        f"{data['device'].get('version', 'unknown')}",
-        f"- Address width: "
-        f"{data['device'].get('address_width', 'unknown')}",
-        f"- Register width: "
-        f"{data['device'].get('register_width', 'unknown')}",
+        f"- Version: {data['device'].get('version', 'unknown')}",
+        f"- Address width: {data['device'].get('address_width', 'unknown')}",
+        f"- Register width: {data['device'].get('register_width', 'unknown')}",
         "",
         "| Register | Offset | Access | Reset | Mask |",
         "|---|---:|---|---:|---:|",
     ]
 
     for reg in data["registers"]:
-        offset = numeric_value(
-            reg["offset"],
-            f"{device_name}.{reg['name']}.offset"
-        )
-
-        reset = numeric_value(
-            reg.get("reset", 0),
-            f"{device_name}.{reg['name']}.reset"
-        )
-
-        mask = numeric_value(
-            reg.get("mask", 0xFFFFFFFF),
-            f"{device_name}.{reg['name']}.mask"
-        )
-
+        offset = numeric_value(reg["offset"], f"{device_name}.{reg['name']}.offset")
+        reset = numeric_value(reg.get("reset", 0), f"{device_name}.{reg['name']}.reset")
+        mask = numeric_value(reg.get("mask", 0xFFFFFFFF), f"{device_name}.{reg['name']}.mask")
         lines.append(
-            f"| {reg['name']} | "
-            f"{hex_value(offset)} | "
-            f"{reg['access']} | "
-            f"{hex_value(reset)} | "
-            f"{hex_value(mask)} |"
+            f"| {reg['name']} | {hex_value(offset)} | {reg['access']} | "
+            f"{hex_value(reset)} | {hex_value(mask)} |"
         )
 
     lines.append("")
+    for reg in data["registers"]:
+        fields = reg.get("fields", [])
+        if not fields:
+            continue
+        lines.extend([
+            f"### {reg['name']} fields",
+            "",
+            "| Field | Bit offset | Width | Access | Mask |",
+            "|---|---:|---:|---|---:|",
+        ])
+        for field in fields:
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg['name']}.{field['name']}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg['name']}.{field['name']}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(
+                f"| {field['name']} | {bit_offset} | {bit_width} | "
+                f"{field['access']} | {hex_value(field_mask)} |"
+            )
+        lines.append("")
 
     output.write_text("\n".join(lines))
     print(f"generated: {output}")
@@ -652,6 +846,34 @@ def generate_verification_artifact(data):
             f"reset=`{hex_value(reset)}` "
             f"mask=`{hex_value(mask)}`"
         )
+        for field in reg.get("fields", []):
+            bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg['name']}.{field['name']}.bit_offset")
+            bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg['name']}.{field['name']}.bit_width")
+            field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
+            lines.append(
+                f"  - Field `{reg['name']}.{field['name']}`: "
+                f"bit_offset=`{bit_offset}`, bit_width=`{bit_width}`, "
+                f"access=`{field['access']}`, mask=`{hex_value(field_mask)}`"
+            )
+
+    lines.extend([
+        "",
+        "## Generated test vectors",
+        "",
+        "| Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |",
+        "|---|---:|---|---|---:|",
+    ])
+    for reg in data["registers"]:
+        reset = numeric_value(reg.get("reset", 0), f"{device_name}.{reg['name']}.reset")
+        mask = numeric_value(reg.get("mask", 0xFFFFFFFF), f"{device_name}.{reg['name']}.mask")
+        access = reg["access"]
+        read_allowed = "yes" if access in {"RO", "RW", "W1C"} else "no"
+        write_allowed = "yes" if access in {"RW", "WO", "W1C"} else "no"
+        masked_sample = 0xFFFFFFFF & mask
+        lines.append(
+            f"| {reg['name']} | {hex_value(reset)} | {read_allowed} | "
+            f"{write_allowed} | {hex_value(masked_sample)} |"
+        )
 
     lines.extend([
         "",
@@ -677,6 +899,7 @@ def generate_verification_artifact(data):
 
 def generate_all(soc_data, device_data):
     generate_soc_map(soc_data)
+    generate_register_metadata_header()
 
     for data in device_data.values():
         generate_device_header(data)

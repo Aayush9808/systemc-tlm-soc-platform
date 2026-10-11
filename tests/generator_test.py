@@ -1,5 +1,8 @@
 from pathlib import Path
+import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -48,10 +51,1397 @@ def save(path, data):
         yaml.safe_dump(data, file, sort_keys=False)
 
 
+def expect_sram_image_and_distinct_latency():
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit("FAIL: SystemC paths are required for the SRAM image probe")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        image_path = temp_root / "sram.bin"
+        image_path.write_bytes(bytes([0x78, 0x56, 0x34, 0x12]))
+        probe = temp_root / "sram_image_latency_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+#include "model/memory/simple_memory.h"
+
+struct Probe : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Probe> socket;
+    bool passed = false;
+    SC_CTOR(Probe) : socket("socket") { SC_THREAD(run); }
+
+    bool access(tlm::tlm_command command, uint64_t address,
+                unsigned char* data, sc_core::sc_time expected_delay) {
+        tlm::tlm_generic_payload trans;
+        trans.set_command(command);
+        trans.set_address(address);
+        trans.set_data_ptr(data);
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        return trans.get_response_status() == tlm::TLM_OK_RESPONSE &&
+               delay == expected_delay;
+    }
+
+    void run() {
+        wait(sc_core::SC_ZERO_TIME);
+        unsigned char read_data[4] = {};
+        if (!access(tlm::TLM_READ_COMMAND, 0, read_data,
+                    sc_core::sc_time(3, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        if (read_data[0] != 0x78 || read_data[1] != 0x56 ||
+            read_data[2] != 0x34 || read_data[3] != 0x12) {
+            sc_core::sc_stop(); return;
+        }
+        unsigned char write_data[4] = {0xEF, 0xCD, 0xAB, 0x89};
+        if (!access(tlm::TLM_WRITE_COMMAND, 4, write_data,
+                    sc_core::sc_time(7, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        unsigned char verify_data[4] = {};
+        if (!access(tlm::TLM_READ_COMMAND, 4, verify_data,
+                    sc_core::sc_time(3, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        passed = verify_data[0] == 0xEF && verify_data[1] == 0xCD &&
+                 verify_data[2] == 0xAB && verify_data[3] == 0x89;
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int argc, char* argv[]) {
+    if (argc != 2) return 2;
+    SimpleMemory memory(
+        "memory", 1024,
+        sc_core::sc_time(3, sc_core::SC_NS),
+        sc_core::sc_time(7, sc_core::SC_NS),
+        argv[1]
+    );
+    Probe probe("probe");
+    probe.socket.bind(memory.socket);
+    sc_core::sc_start();
+    return probe.passed ? 0 : 1;
+}
+''')
+        binary = temp_root / "sram_image_latency_probe"
+        build = subprocess.run(
+            [
+                shutil.which("c++") or shutil.which("g++") or "c++",
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(ROOT),
+                str(probe),
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: SRAM image/latency probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+        run = subprocess.run(
+            [str(binary), str(image_path)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: SRAM image/latency probe failed:\\n"
+                + run.stdout + run.stderr
+            )
+    print("[PASS] SRAM image contents and separate read/write latencies verified at runtime")
+
+
+
+def expect_gpio_yaml_register_runtime():
+    """Verify a newly declared GPIO register is backed by live runtime state."""
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if not systemc_include or not systemc_library:
+        raise SystemExit("FAIL: SystemC paths are required for the GPIO runtime probe")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for the GPIO runtime probe")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        gpio_path = spec_dir / "gpio.yaml"
+        gpio_data = load(gpio_path)
+        gpio_data["registers"].extend([
+            {"name": "SCRATCH", "offset": "0x7C", "access": "RW",
+             "reset": "0xA5", "mask": "0xFF"},
+            {"name": "TEST_W1C", "offset": "0x80", "access": "W1C",
+             "reset": "0x3", "mask": "0xF"},
+        ])
+        save(gpio_path, gpio_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        (temp_root / "model" / "peripherals").mkdir(parents=True)
+        shutil.copy2(ROOT / "model" / "peripherals" / "gpio.h",
+                     temp_root / "model" / "peripherals" / "gpio.h")
+        probe = temp_root / "gpio_yaml_register_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+#include "model/peripherals/gpio.h"
+
+struct Probe : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Probe> socket;
+    sc_core::sc_signal<bool> irq_signal;
+    Gpio gpio;
+    bool passed = false;
+
+    SC_CTOR(Probe)
+        : socket("socket"), irq_signal("irq_signal"), gpio("gpio") {
+        socket.bind(gpio.socket);
+        gpio.irq(irq_signal);
+        SC_THREAD(run);
+    }
+
+    bool access(tlm::tlm_command command, uint64_t address, uint32_t& value) {
+        tlm::tlm_generic_payload trans;
+        trans.set_command(command);
+        trans.set_address(address);
+        trans.set_data_ptr(reinterpret_cast<unsigned char*>(&value));
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        return trans.get_response_status() == tlm::TLM_OK_RESPONSE;
+    }
+
+    void run() {
+        wait(sc_core::SC_ZERO_TIME);
+        uint32_t value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0xA5) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0x123;
+        if (!access(tlm::TLM_WRITE_COMMAND, 0x7C, value)) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0x23) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0x1;
+        if (!access(tlm::TLM_WRITE_COMMAND, 0x80, value)) {
+            sc_core::sc_stop(); return;
+        }
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x80, value) || value != 0x2) {
+            sc_core::sc_stop(); return;
+        }
+        gpio.reset();
+        value = 0;
+        if (!access(tlm::TLM_READ_COMMAND, 0x7C, value) || value != 0xA5) {
+            sc_core::sc_stop(); return;
+        }
+        passed = true;
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int, char**) {
+    Probe probe("probe");
+    sc_core::sc_start();
+    return probe.passed ? 0 : 1;
+}
+''')
+        binary = temp_root / "gpio_yaml_register_probe"
+        build = subprocess.run(
+            [compiler, "-std=c++17", "-I", systemc_include, "-I", str(temp_root),
+             str(probe), str(out_dir / "src" / "gpio_registers.cpp"),
+             systemc_library, "-o", str(binary)],
+            capture_output=True, text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit("FAIL: GPIO YAML runtime probe did not compile:\\n"
+                             + build.stdout + build.stderr)
+        run = subprocess.run([str(binary)], capture_output=True, text=True)
+        if run.returncode != 0:
+            raise SystemExit("FAIL: GPIO YAML runtime probe failed:\\n"
+                             + run.stdout + run.stderr)
+    print("[PASS] added YAML GPIO RW/W1C registers honor reset, mask, writes and reset at runtime")
+
+
+def expect_address_relocation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        soc_path = spec_dir / "soc.yaml"
+        data = load(soc_path)
+        uart = next(entry for entry in data["memory_map"] if entry["name"] == "UART0")
+        uart["base"] = "0x50000000"
+        save(soc_path, data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+            header = (out_dir / "include" / "soc_memory_map.h").read_text()
+            if "UART0_BASE = 0x50000000ULL" not in header:
+                raise SystemExit("FAIL: relocated UART address was not generated")
+
+            # Regeneration must preserve register metadata while relocating the
+            # peripheral, and generated artifacts must be emitted as a set.
+            metadata = (out_dir / "include" / "register_metadata.h").read_text()
+            uart_header = (out_dir / "include" / "uart0.h").read_text()
+            if "enum class RegisterAccess" not in metadata:
+                raise SystemExit("FAIL: shared register metadata header was not generated")
+            if '#include "register_metadata.h"' not in uart_header:
+                raise SystemExit("FAIL: UART header does not include shared metadata")
+            print("[PASS] UART address relocation regenerates memory map")
+            print("[PASS] generated register metadata is emitted consistently")
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+
+def expect_register_relocation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        uart_path = spec_dir / "uart.yaml"
+        data = load(uart_path)
+        wdata = next(reg for reg in data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        wdata["reset"] = "0x1234"
+        wdata["mask"] = "0xFF"
+        save(uart_path, data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+            header = (out_dir / "include" / "uart0.h").read_text()
+            if "WDATA_OFFSET = 0x00000020;" not in header:
+                raise SystemExit("FAIL: relocated UART register offset was not generated")
+            if "WDATA_RESET = 0x00001234;" not in header:
+                raise SystemExit("FAIL: UART register reset metadata was not generated")
+            if "WDATA_MASK = 0x000000FF;" not in header:
+                raise SystemExit("FAIL: UART register mask metadata was not generated")
+            if "RegisterAccess::WO" not in header:
+                raise SystemExit("FAIL: UART register access metadata was not generated")
+            firmware = (ROOT / "src" / "main.cpp").read_text()
+            if "generated::uart0::WDATA_OFFSET" not in firmware:
+                raise SystemExit(
+                    "FAIL: firmware TX write does not consume generated UART WDATA offset"
+                )
+            print("[PASS] UART register relocation regenerates register offsets")
+            print("[PASS] register reset, mask and access metadata follow YAML")
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+
+def expect_register_addition():
+    with tempfile.TemporaryDirectory() as temp:
+        out_dir = Path(temp) / "generated"
+        uart_path = SOURCE_SPECS / "uart.yaml"
+        uart_data = load(uart_path)
+        uart_data["registers"].append({
+            "name": "TEST_REG",
+            "offset": "0x20",
+            "access": "RW",
+            "reset": "0x000000A5",
+            "mask": "0x000000FF",
+            "fields": [{
+                "name": "PAYLOAD",
+                "bit_offset": 4,
+                "bit_width": 3,
+                "access": "RW",
+            }],
+        })
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = Path(temp) / "specs"
+        shutil.copytree(SOURCE_SPECS, generate.SPEC_DIR)
+        save(generate.SPEC_DIR / "uart.yaml", uart_data)
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        cpp_header = (out_dir / "include" / "uart0.h").read_text()
+        cpp_source = (out_dir / "src" / "uart0_registers.cpp").read_text()
+        sw_header = (out_dir / "sw" / "uart0.h").read_text()
+        device_docs = (out_dir / "docs" / "uart0.md").read_text()
+        verification = (out_dir / "docs" / "uart0_verification.md").read_text()
+        checks = [
+            ("TEST_REG_OFFSET = 0x00000020", cpp_header),
+            ('    {"TEST_REG", 0x00000020, 0x000000A5, 0x000000FF, RegisterAccess::RW},', cpp_header),
+            ("const RegisterMetadata* find_register(", cpp_source),
+            ("TEST_REG_RESET = 0x000000A5", cpp_header),
+            ("TEST_REG_PAYLOAD_MASK = 0x00000070", cpp_header),
+            ("UART0_TEST_REG_OFFSET 0x00000020", sw_header),
+            ("UART0_TEST_REG_PAYLOAD_MASK 0x00000070", sw_header),
+            ("| TEST_REG | 0x00000020 | RW | 0x000000A5 | 0x000000FF |", device_docs),
+            ("| TEST_REG | 0x000000A5 | yes | yes | 0x000000FF |", verification),
+        ]
+        missing = [label for label, content in checks if label not in content]
+        if missing:
+            raise SystemExit(
+                "FAIL: adding a YAML register did not update all generated artifacts: "
+                + ", ".join(missing)
+            )
+    print("[PASS] adding a register updates generated C++, firmware header, docs and verification vectors")
+
+
+def expect_generated_runtime_behavior():
+    """
+    Compile and execute metadata regenerated from mutated YAML.
+
+    This closes the gap between checking generated text and proving that the
+    generated C++ constants/lookup helpers expose the changed contract at
+    runtime. It intentionally does not claim to execute the full SoC bus.
+    """
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for generated runtime test")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        uart_range["base"] = "0x50000000"
+        uart_range["size"] = "0x2000"
+        save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(reg for reg in uart_data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        wdata["reset"] = "0x1234"
+        wdata["mask"] = "0xFF"
+        save(uart_path, uart_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        probe = temp_root / "generated_contract_probe.cpp"
+        probe.write_text(r'''#include <cstdint>
+#include "soc_memory_map.h"
+#include "uart0.h"
+
+int main() {
+    using namespace generated;
+
+    if (UART0_BASE != 0x50000000ULL) return 1;
+    const auto* generated_uart_range = find_memory_range(TargetId::UART0);
+    if (generated_uart_range == nullptr ||
+        generated_uart_range->base != 0x50000000ULL ||
+        generated_uart_range->size != 0x2000ULL) return 12;
+
+    bool found_uart = false;
+    for (unsigned int i = 0; i < MEMORY_MAP_COUNT; ++i) {
+        const auto& range = MEMORY_MAP[i];
+        if (range.target == TargetId::UART0) {
+            found_uart = true;
+            if (range.base != 0x50000000ULL || range.size != 0x2000ULL)
+                return 2;
+            const uint64_t transaction_address = range.base + uart0::WDATA_OFFSET;
+            if (transaction_address != 0x50000020ULL) return 3;
+            if (transaction_address < range.base ||
+                transaction_address >= range.base + range.size)
+                return 4;
+        }
+    }
+    if (!found_uart) return 5;
+
+    const auto* reg = lookup_register(
+        uart0::REGISTERS, uart0::REGISTER_COUNT, 0x20
+    );
+    if (reg == nullptr) return 6;
+    if (reg->reset != 0x1234 || reg->mask != 0xFF) return 7;
+    if (reg->access != RegisterAccess::WO) return 8;
+    if (!register_write_allowed(*reg) || register_read_allowed(*reg)) return 9;
+    if (apply_register_mask(*reg, 0xABCD) != 0xCD) return 10;
+
+    if (lookup_register(
+            uart0::REGISTERS, uart0::REGISTER_COUNT, 0x0C) != nullptr)
+        return 11;
+
+    return 0;
+}
+''')
+        binary = temp_root / "generated_contract_probe"
+        build = subprocess.run(
+            [
+                compiler, "-std=c++17",
+                "-I", str(out_dir / "include"),
+                str(probe), "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: generated runtime probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+
+        run = subprocess.run(
+            [str(binary)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: generated runtime probe failed with exit code "
+                + str(run.returncode) + "\\n"
+                + run.stdout + run.stderr
+            )
+
+    print("[PASS] mutated YAML -> generated C++ -> compiled runtime contract")
+
+def expect_interconnect_address_relocation():
+    """
+    Compile the real interconnect against a regenerated map and send TLM
+    transactions through its socket. The moved UART base must route to UART
+    with a local register offset, while the old base must be unmapped.
+    """
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit(
+            "FAIL: CMake must pass SYSTEMC_INCLUDE_DIR and SYSTEMC_LIBRARY "
+            "to generator_validation"
+        )
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        interconnect_dir = temp_root / "model" / "interconnect"
+        peripheral_dir = temp_root / "model" / "peripherals"
+        interconnect_dir.mkdir(parents=True)
+        peripheral_dir.mkdir(parents=True)
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        shutil.copy2(
+            ROOT / "model" / "interconnect" / "simple_interconnect.h",
+            interconnect_dir / "simple_interconnect.h",
+        )
+        shutil.copy2(
+            ROOT / "model" / "peripherals" / "uart.h",
+            peripheral_dir / "uart.h",
+        )
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        uart_range["base"] = "0x50000000"
+        # WDATA at 0x20 is the final valid 4-byte access; 0x24 is the
+        # first unmapped byte immediately beyond this deliberately small IP.
+        uart_range["size"] = "0x24"
+        sram_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "SRAM"
+        )
+        # Deliberately make the declared SRAM window smaller than the dummy
+        # target's DMI grant to exercise interconnect-side range clamping.
+        sram_range["size"] = "0x1000"
+        # Exercise a generated target range that has no handwritten socket.
+        soc_data["memory_map"].append({
+            "name": "UNWIRED",
+            "base": "0x60000000",
+            "size": "0x1000",
+            "type": "peripheral",
+        })
+        save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(reg for reg in uart_data["registers"] if reg["name"] == "WDATA")
+        wdata["offset"] = "0x20"
+        wdata["mask"] = "0xFF"
+        save(uart_path, uart_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        probe = temp_root / "interconnect_relocation_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_target_socket.h>
+#include <tlm_utils/simple_initiator_socket.h>
+#include <cstdint>
+#include <vector>
+#include "model/interconnect/simple_interconnect.h"
+#include "model/peripherals/uart.h"
+
+struct DummyTarget : sc_core::sc_module {
+    tlm_utils::simple_target_socket<DummyTarget> socket;
+    uint64_t last_address = UINT64_MAX;
+    unsigned int calls = 0;
+    unsigned char backing[1024 * 1024] = {};
+
+    SC_CTOR(DummyTarget) : socket("socket") {
+        socket.register_b_transport(this, &DummyTarget::b_transport);
+        socket.register_get_direct_mem_ptr(this, &DummyTarget::get_direct_mem_ptr);
+    }
+
+    bool get_direct_mem_ptr(
+        tlm::tlm_generic_payload&,
+        tlm::tlm_dmi& dmi
+    ) {
+        dmi.set_dmi_ptr(backing);
+        dmi.set_start_address(0);
+        dmi.set_end_address(sizeof(backing) - 1);
+        dmi.allow_read_write();
+        return true;
+    }
+
+    void b_transport(tlm::tlm_generic_payload& trans, sc_core::sc_time&) {
+        last_address = trans.get_address();
+        ++calls;
+        trans.set_response_status(tlm::TLM_OK_RESPONSE);
+    }
+};
+
+struct Initiator : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Initiator> socket;
+    bool passed = false;
+    std::vector<sc_core::sc_time> successful_delays;
+
+    SC_CTOR(Initiator) : socket("socket") {
+        SC_THREAD(run);
+    }
+
+    void transact(
+        uint64_t address,
+        uint32_t value,
+        tlm::tlm_response_status expected
+    ) {
+        unsigned char data[4] = {
+            static_cast<unsigned char>(value & 0xFF),
+            static_cast<unsigned char>((value >> 8) & 0xFF),
+            static_cast<unsigned char>((value >> 16) & 0xFF),
+            static_cast<unsigned char>((value >> 24) & 0xFF)
+        };
+        tlm::tlm_generic_payload trans;
+        trans.set_command(tlm::TLM_WRITE_COMMAND);
+        trans.set_address(address);
+        trans.set_data_ptr(data);
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_response_status(tlm::TLM_INCOMPLETE_RESPONSE);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        if (trans.get_response_status() != expected) passed = false;
+        if (trans.get_response_status() == tlm::TLM_OK_RESPONSE)
+            successful_delays.push_back(delay);
+    }
+
+    void run() {
+        passed = true;
+        wait(sc_core::SC_ZERO_TIME);
+
+        transact(0x50000000ULL, 1, tlm::TLM_OK_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // WDATA was moved from 0x0C to 0x20 in the mutated YAML.
+        transact(0x50000020ULL, 0x141, tlm::TLM_OK_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+        if (successful_delays.size() < 2 ||
+            successful_delays[1] <= successful_delays[0]) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
+
+        // The first byte immediately beyond the declared region is unmapped.
+        transact(0x50000024ULL, 0x145, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // The old register offset is no longer defined by generated metadata.
+        transact(0x5000000CULL, 0x142, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // The old peripheral base is also unmapped after relocation.
+        transact(0x40000020ULL, 0x143, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // A generated range with no handwritten target binding must fail
+        // deterministically instead of leaving the payload incomplete.
+        transact(0x60000000ULL, 0x144, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
+        // The SRAM target grants 1 MiB, but the generated map declares only
+        // 4 KiB. The interconnect must clamp the system-visible DMI window.
+        tlm::tlm_generic_payload dmi_request;
+        dmi_request.set_command(tlm::TLM_READ_COMMAND);
+        dmi_request.set_address(generated::SRAM_BASE + 0x20);
+        dmi_request.set_data_length(4);
+        dmi_request.set_streaming_width(4);
+        tlm::tlm_dmi dmi;
+        if (!socket->get_direct_mem_ptr(dmi_request, dmi) ||
+            dmi.get_start_address() != generated::SRAM_BASE ||
+            dmi.get_end_address() != generated::SRAM_BASE + 0xFFF ||
+            dmi.get_dmi_ptr() == nullptr) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
+
+        tlm::tlm_generic_payload outside_request;
+        outside_request.set_command(tlm::TLM_READ_COMMAND);
+        outside_request.set_address(generated::SRAM_BASE + 0x1000);
+        outside_request.set_data_length(4);
+        outside_request.set_streaming_width(4);
+        tlm::tlm_dmi outside_dmi;
+        if (socket->get_direct_mem_ptr(outside_request, outside_dmi)) {
+            passed = false;
+            sc_core::sc_stop();
+            return;
+        }
+
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int, char**) {
+    SimpleInterconnect bus("bus");
+    DummyTarget rom("rom"), sram("sram"), gpio("gpio");
+    DummyTarget timer("timer"), spi("spi"), irq("irq");
+    Uart uart("uart");
+    sc_core::sc_signal<bool> uart_irq("uart_irq");
+    uart.irq(uart_irq);
+    Initiator initiator("initiator");
+
+    initiator.socket.bind(bus.target_socket);
+    bus.rom_socket.bind(rom.socket);
+    bus.memory_socket.bind(sram.socket);
+    bus.uart_socket.bind(uart.socket);
+    bus.gpio_socket.bind(gpio.socket);
+    bus.timer_socket.bind(timer.socket);
+    bus.spi_socket.bind(spi.socket);
+    bus.irq_socket.bind(irq.socket);
+
+    sc_core::sc_start();
+
+    if (!initiator.passed) return 1;
+    if (bus.target_transactions(generated::TargetId::UART0) != 3) return 2;
+    if (bus.total_transactions() != 4) return 3;
+
+    return 0;
+}
+''')
+        binary = temp_root / "interconnect_relocation_probe"
+        build = subprocess.run(
+            [
+                shutil.which("c++") or shutil.which("g++") or "c++",
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(temp_root),
+                str(probe),
+                *[str(path) for path in sorted((out_dir / "src").glob("*.cpp"))],
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: relocated interconnect probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+
+        run = subprocess.run(
+            [str(binary)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: relocated interconnect probe failed with exit code "
+                + str(run.returncode) + "\\n"
+                + run.stdout + run.stderr
+            )
+
+    print("[PASS] relocated UART base routes real TLM transactions to the UART model")
+    print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
+    print("[PASS] old UART base is unmapped after YAML relocation")
+    print("[PASS] final in-range register and first-unmapped address boundary are enforced")
+    print("[PASS] overlapping TLM requests serialize on the shared interconnect")
+    print("[PASS] DMI grant is clamped to generated SRAM range")
+
+
+def expect_full_firmware_scenario_with_relocated_uart():
+    """
+    Compile the real SoC against a mutated YAML map/register schema and run
+    the full firmware-like scenario in both timing modes. This proves that a
+    relocated UART and register offset flow through generation, routing,
+    peripheral behavior, and the scenario's unmapped-address regression.
+    """
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit(
+            "FAIL: CMake must pass SystemC paths to the relocated firmware test"
+        )
+
+    compiler = shutil.which("c++") or shutil.which("g++") or shutil.which("clang++")
+    if compiler is None:
+        raise SystemExit("FAIL: no C++ compiler available for relocated firmware test")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        spec_dir = temp_root / "specs"
+        out_dir = temp_root / "generated"
+        shutil.copytree(SOURCE_SPECS, spec_dir)
+        shutil.copytree(ROOT / "model", temp_root / "model")
+        shutil.copytree(ROOT / "src", temp_root / "src")
+        shutil.copytree(ROOT / "benchmarks", temp_root / "benchmarks")
+
+        soc_path = spec_dir / "soc.yaml"
+        soc_data = load(soc_path)
+        uart_range = next(
+            entry for entry in soc_data["memory_map"]
+            if entry["name"] == "UART0"
+        )
+        # This deliberately collides with the old hard-coded negative-test
+        # address, which must now be selected from the generated map.
+        uart_range["base"] = "0x50000000"
+        save(soc_path, soc_data)
+
+        uart_path = spec_dir / "uart.yaml"
+        uart_data = load(uart_path)
+        wdata = next(
+            reg for reg in uart_data["registers"] if reg["name"] == "WDATA"
+        )
+        wdata["offset"] = "0x20"
+        save(uart_path, uart_data)
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = spec_dir
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        binary = temp_root / "soc_sim_relocated"
+        generated_sources = sorted((out_dir / "src").glob("*.cpp"))
+        build = subprocess.run(
+            [
+                compiler,
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(out_dir / "include"),
+                str(temp_root / "src" / "main.cpp"),
+                *[str(path) for path in generated_sources],
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: full SoC did not compile with relocated YAML:\\n"
+                + build.stdout + build.stderr
+            )
+
+        rom_image = temp_root / "test_rom.bin"
+        rom_image.write_bytes(bytes([
+            0x78, 0x56, 0x34, 0x12,
+            0xEF, 0xCD, 0xAB, 0x89,
+        ]))
+        sram_image = temp_root / "test_sram.bin"
+        sram_bytes = bytearray(0x104)
+        sram_bytes[0x100:0x104] = bytes([0x11, 0x22, 0x33, 0x44])
+        sram_image.write_bytes(sram_bytes)
+
+        simulated_seconds = {}
+        scenario_outputs = {}
+        time_scale = {
+            "fs": 1e-15,
+            "ps": 1e-12,
+            "ns": 1e-9,
+            "us": 1e-6,
+            "ms": 1e-3,
+            "s": 1.0,
+        }
+        for timing in ("timed-lt", "functional-fast"):
+            run = subprocess.run(
+                [
+                    str(binary), "--scenario", "boot", "--timing", timing,
+                    "--rom-image", str(rom_image),
+                    "--rom-latency-ns", "13",
+                    "--sram-image", str(sram_image),
+                    "--sram-read-latency-ns", "3",
+                    "--sram-write-latency-ns", "5",
+                    "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
+                    "--interconnect-latency-ns", "5",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            output = run.stdout + run.stderr
+            if run.returncode != 0:
+                raise SystemExit(
+                    f"FAIL: relocated full firmware scenario failed in {timing}:\\n"
+                    + output
+                )
+            if "All required firmware checks: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: relocated firmware scenario did not report PASS in {timing}:\\n"
+                    + output
+                )
+            if "0x12345678 -> 0x12345678" not in output:
+                raise SystemExit(
+                    f"FAIL: binary ROM image was not loaded in {timing}:\\n"
+                    + output
+                )
+            if "SRAM initialization image: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: SRAM initialization image was not loaded in {timing}:\\n"
+                    + output
+                )
+            if "Unmapped address 0x80000000 rejected: PASS" not in output:
+                raise SystemExit(
+                    f"FAIL: unmapped-address regression did not use the generated map in {timing}:\\n"
+                    + output
+                )
+            time_match = re.search(
+                r"Simulation time:\s*([0-9]+(?:\.[0-9]+)?)\s*(fs|ps|ns|us|ms|s)",
+                output,
+            )
+            if time_match is None:
+                raise SystemExit(
+                    f"FAIL: simulation time was not reported in {timing}:\\n" + output
+                )
+            simulated_seconds[timing] = (
+                float(time_match.group(1)) * time_scale[time_match.group(2)]
+            )
+            scenario_outputs[timing] = output
+
+        repeat_run = subprocess.run(
+            [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--rom-latency-ns", "13",
+                    "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
+                "--interconnect-latency-ns", "5",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        repeat_output = repeat_run.stdout + repeat_run.stderr
+        if repeat_run.returncode != 0 or repeat_output != scenario_outputs["timed-lt"]:
+            raise SystemExit(
+                "FAIL: repeated timed-LT scenario output was not deterministic:\\n"
+                + repeat_output
+            )
+
+        if simulated_seconds["timed-lt"] <= simulated_seconds["functional-fast"]:
+            raise SystemExit(
+                "FAIL: timed-LT did not advance more simulated time than functional-fast: "
+                + repr(simulated_seconds)
+            )
+
+        zero_interconnect = subprocess.run(
+            [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--rom-latency-ns", "13",
+                    "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
+                "--interconnect-latency-ns", "0",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        zero_output = zero_interconnect.stdout + zero_interconnect.stderr
+        zero_match = re.search(
+            r"Simulation time:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(fs|ps|ns|us|ms|s)",
+            zero_output,
+        )
+        if zero_interconnect.returncode != 0 or zero_match is None:
+            raise SystemExit(
+                "FAIL: zero-interconnect-latency control run failed:\\n" + zero_output
+            )
+        zero_seconds = float(zero_match.group(1)) * time_scale[zero_match.group(2)]
+        if simulated_seconds["timed-lt"] <= zero_seconds:
+            raise SystemExit(
+                "FAIL: configured interconnect latency did not increase simulated time: "
+                + repr({"configured": simulated_seconds["timed-lt"], "zero": zero_seconds})
+            )
+
+        for label, latency_option in (
+            ("UART", ["--uart-latency-ns", "0"]),
+            ("ROM", ["--rom-latency-ns", "0"]),
+        ):
+            control_args = [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--rom-latency-ns", "13",
+                "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                "--uart-latency-ns", "11",
+                "--interconnect-latency-ns", "5",
+            ]
+            if label == "UART":
+                control_args[control_args.index("--uart-latency-ns") + 1] = "0"
+            else:
+                control_args[control_args.index("--rom-latency-ns") + 1] = "0"
+            control = subprocess.run(control_args, capture_output=True, text=True)
+            control_output = control.stdout + control.stderr
+            control_match = re.search(
+                r"Simulation time:\s*([0-9]+(?:\.[0-9]+)?)\s*(fs|ps|ns|us|ms|s)",
+                control_output,
+            )
+            if control.returncode != 0 or control_match is None:
+                raise SystemExit(
+                    f"FAIL: {label} latency control run failed:\\n" + control_output
+                )
+            control_seconds = (
+                float(control_match.group(1)) * time_scale[control_match.group(2)]
+            )
+            if simulated_seconds["timed-lt"] <= control_seconds:
+                raise SystemExit(
+                    f"FAIL: configured {label} latency did not increase simulated time"
+                )
+
+        benchmark_binary = temp_root / "soc_bench_relocated"
+        benchmark_build = subprocess.run(
+            [
+                compiler,
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(out_dir / "include"),
+                str(temp_root / "benchmarks" / "soc_bench.cpp"),
+                *[str(path) for path in generated_sources],
+                systemc_library,
+                "-o", str(benchmark_binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if benchmark_build.returncode != 0:
+            raise SystemExit(
+                "FAIL: benchmark did not compile with relocated YAML:\\n"
+                + benchmark_build.stdout + benchmark_build.stderr
+            )
+        benchmark_run = subprocess.run(
+            [str(benchmark_binary), "1000"],
+            capture_output=True,
+            text=True,
+        )
+        benchmark_output = benchmark_run.stdout + benchmark_run.stderr
+        if benchmark_run.returncode != 0 or "Benchmark: PASS" not in benchmark_output:
+            raise SystemExit(
+                "FAIL: benchmark did not pass with relocated UART map:\\n"
+                + benchmark_output
+            )
+
+    print("[PASS] binary ROM image loads and is copied correctly in both timing modes")
+    print("[PASS] SRAM initialization image and distinct read/write latencies work in both timing modes")
+    print("[PASS] configurable interconnect latency participates in annotated timing")
+    print("[PASS] ROM and per-target UART latency overrides affect simulated time")
+    print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
+    print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
+    print("[PASS] repeated timed-LT scenario output is deterministic")
+    print("[PASS] timing regression confirms timed-LT consumes annotated delays")
+    print("[PASS] changing interconnect latency changes timed-LT simulated time")
+    print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
+
+
+def check_interconnect_dmi_respects_generated_range():
+    source = (ROOT / "model" / "interconnect" / "simple_interconnect.h").read_text()
+    required = [
+        "const uint64_t mapped_start = range->base;",
+        "range->base + range->size - 1",
+        "translated_end > mapped_end",
+        "dmi_data.set_start_address(clamped_start)",
+        "dmi_data.set_end_address(clamped_end)",
+        "if (clamped_start > clamped_end)",
+        "A generated map can describe a target that this handwritten",
+        "default:",
+        "tlm::TLM_ADDRESS_ERROR_RESPONSE",
+    ]
+    missing = [fragment for fragment in required if fragment not in source]
+    if missing:
+        raise SystemExit(
+            "FAIL: interconnect does not clamp DMI to the generated SRAM range: "
+            + ", ".join(missing)
+        )
+    print("[PASS] interconnect clamps advertised DMI range to generated map")
+
+def check_firmware_uses_generated_bases():
+    source = (ROOT / "src" / "main.cpp").read_text()
+    required = [
+        "generated::UART0_BASE",
+        "generated::GPIO_BASE",
+        "generated::RV_TIMER_BASE",
+        "generated::SPI_DEVICE_BASE",
+        "generated::IRQ_BASE",
+    ]
+    missing = [name for name in required if name not in source]
+    if missing:
+        raise SystemExit(
+            "FAIL: firmware is missing generated address constants: "
+            + ", ".join(missing)
+        )
+
+    register_symbols = [
+        "generated::uart0::CTRL_OFFSET",
+        "generated::uart0::WDATA_OFFSET",
+        "generated::uart0::INTR_STATE_OFFSET",
+        "generated::uart0::INTR_ENABLE_OFFSET",
+        "generated::gpio::DIRECT_OUT_OFFSET",
+        "generated::gpio::DIRECT_OE_OFFSET",
+        "generated::gpio::MASKED_OUT_LOWER_OFFSET",
+        "generated::gpio::MASKED_OUT_UPPER_OFFSET",
+        "generated::gpio::INTR_STATE_OFFSET",
+        "generated::gpio::INTR_ENABLE_OFFSET",
+        "generated::gpio::INTR_RISE_OFFSET",
+        "generated::rv_timer::CTRL_OFFSET",
+        "generated::rv_timer::CFG0_OFFSET",
+        "generated::rv_timer::TIMER_V_LOWER_OFFSET",
+        "generated::rv_timer::TIMER_V_UPPER_OFFSET",
+        "generated::rv_timer::COMPARE_LOWER_OFFSET",
+        "generated::rv_timer::COMPARE_UPPER_OFFSET",
+        "generated::rv_timer::INTR_STATE_OFFSET",
+        "generated::rv_timer::INTR_ENABLE_OFFSET",
+        "generated::spi_device::CONTROL_OFFSET",
+        "generated::spi_device::CFG_OFFSET",
+        "generated::spi_device::STATUS_OFFSET",
+        "generated::spi_device::TX_OFFSET",
+        "generated::spi_device::RX_OFFSET",
+        "generated::irq::PENDING_OFFSET",
+        "generated::irq::ENABLE_OFFSET",
+        "generated::irq::CLAIM_OFFSET",
+        "generated::irq::COMPLETE_OFFSET",
+    ]
+    missing_symbols = [name for name in register_symbols if name not in source]
+    if missing_symbols:
+        raise SystemExit(
+            "FAIL: firmware is missing generated register offsets: "
+            + ", ".join(missing_symbols)
+        )
+
+    # A register offset edited in YAML must flow into the actual firmware
+    # transactions, not only into a generated metadata header.
+    for base in ("UART0", "GPIO", "RV_TIMER", "SPI_DEVICE"):
+        if re.search(rf"generated::{base}_BASE\s*\+\s*0x[0-9A-Fa-f]+ULL", source):
+            raise SystemExit(
+                f"FAIL: firmware still hardcodes a {base} register offset"
+            )
+    benchmark_source = (ROOT / "benchmarks" / "soc_bench.cpp").read_text()
+    benchmark_symbols = [
+        "generated::SRAM_BASE",
+        "generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET",
+        "generated::UART0_BASE + generated::uart0::CTRL_OFFSET",
+        "generated::UART0_BASE + generated::uart0::STATUS_OFFSET",
+        "generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET",
+        "generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET",
+    ]
+    missing_benchmark_symbols = [
+        symbol for symbol in benchmark_symbols if symbol not in benchmark_source
+    ]
+    if missing_benchmark_symbols:
+        raise SystemExit(
+            "FAIL: benchmark is missing generated MMIO symbols: "
+            + ", ".join(missing_benchmark_symbols)
+        )
+    for literal in ("0x10000000ULL", "0x40010004", "0x40000000", "0x40000004", "0x40030004", "0x40030008"):
+        if literal in benchmark_source:
+            raise SystemExit(
+                f"FAIL: benchmark still hardcodes a mapped address: {literal}"
+            )
+
+    print("[PASS] firmware and benchmark use generated peripheral bases and register offsets")
+
+
+def check_models_use_generated_memory_ranges():
+    model_targets = {
+        "model/peripherals/uart.h": "UART0",
+        "model/peripherals/gpio.h": "GPIO",
+        "model/peripherals/rv_timer.h": "RV_TIMER",
+        "model/peripherals/spi_device.h": "SPI_DEVICE",
+        "model/irq/irq_controller.h": "IRQ",
+    }
+    for filename, target in model_targets.items():
+        source = (ROOT / filename).read_text()
+        if '#include "../../generated/include/soc_memory_map.h"' not in source:
+            raise SystemExit(
+                f"FAIL: {filename} does not include generated SoC memory-map metadata"
+            )
+        if f"generated::find_memory_range(\n            generated::TargetId::{target}" not in source:
+            raise SystemExit(
+                f"FAIL: {filename} does not derive its range from generated TargetId::{target}"
+            )
+        if re.search(r"address\s*>=\s*0x[0-9A-Fa-f]+", source):
+            raise SystemExit(
+                f"FAIL: {filename} still hard-codes a target address-space size"
+            )
+    print("[PASS] peripheral and IRQ bounds consume generated SoC region sizes")
+
+
+def check_models_use_generated_register_offsets():
+    models = {
+        "uart.h": ("uart0", ["CTRL_OFFSET", "WDATA_OFFSET", "INTR_STATE_OFFSET"]),
+        "gpio.h": ("gpio", ["DATA_IN_OFFSET", "DIRECT_OUT_OFFSET", "INTR_STATE_OFFSET"]),
+        "rv_timer.h": ("rv_timer", ["CTRL_OFFSET", "TIMER_V_LOWER_OFFSET", "INTR_STATE_OFFSET"]),
+        "spi_device.h": ("spi_device", ["CONTROL_OFFSET", "TX_OFFSET", "RX_OFFSET"]),
+    }
+
+    for filename, (namespace, symbols) in models.items():
+        source = (ROOT / "model" / "peripherals" / filename).read_text()
+        if f"../../generated/include/{filename.replace('uart.h', 'uart0.h')}" not in source and filename == "uart.h":
+            raise SystemExit("FAIL: UART model does not include generated register definitions")
+        if filename != "uart.h" and f"../../generated/include/{filename}" not in source:
+            raise SystemExit(f"FAIL: {filename} does not include its generated register definitions")
+        for symbol in symbols:
+            reference = f"generated::{namespace}::{symbol}"
+            if reference not in source:
+                raise SystemExit(f"FAIL: {filename} is missing generated register reference {reference}")
+
+    irq_source = (ROOT / "model" / "irq" / "irq_controller.h").read_text()
+    for symbol in [
+        "generated::irq::PENDING_OFFSET",
+        "generated::irq::ENABLE_OFFSET",
+        "generated::irq::CLAIM_OFFSET",
+        "generated::irq::COMPLETE_OFFSET",
+    ]:
+        if symbol not in irq_source:
+            raise SystemExit(
+                f"FAIL: IRQ controller is missing generated register reference {symbol}"
+            )
+
+    print("[PASS] peripheral models use generated register offsets")
+    print("[PASS] IRQ controller uses generated register offsets")
+
+
+def check_models_enforce_generated_register_policy():
+    model_files = {
+        "model/peripherals/uart.h": "uart0",
+        "model/peripherals/gpio.h": "gpio",
+        "model/peripherals/rv_timer.h": "rv_timer",
+        "model/peripherals/spi_device.h": "spi_device",
+        "model/irq/irq_controller.h": "irq",
+    }
+    for filename, namespace in model_files.items():
+        source = (ROOT / filename).read_text()
+        required_helpers = [
+            f"generated::{namespace}::find_register(",
+            f"generated::{namespace}::allows_read(",
+            f"generated::{namespace}::allows_write(",
+            "generated::apply_register_mask(",
+        ]
+        missing = [helper for helper in required_helpers if helper not in source]
+        if missing:
+            raise SystemExit(
+                f"FAIL: {filename} does not consume generated register dispatch: "
+                + ", ".join(missing)
+            )
+
+    uart_spec = load(SOURCE_SPECS / "uart.yaml")
+    ctrl = next(reg for reg in uart_spec["registers"] if reg["name"] == "CTRL")
+    if ctrl.get("mask") != "0x00000003" and ctrl.get("mask") != 3:
+        raise SystemExit("FAIL: UART CTRL mask test fixture must limit writable bits to 0x3")
+    uart_header = (ROOT / "generated" / "include" / "uart0.h").read_text()
+    if "CTRL_MASK = 0x00000003" not in uart_header:
+        raise SystemExit("FAIL: generated UART CTRL mask does not match YAML")
+    print("[PASS] all target models enforce generated register access and masks")
+
+
+def check_models_use_generated_reset_values():
+    model_requirements = {
+        "model/peripherals/uart.h": [
+            "generated::uart0::CTRL_RESET",
+            "generated::uart0::INTR_STATE_RESET",
+            "generated::uart0::INTR_ENABLE_RESET",
+        ],
+        "model/peripherals/gpio.h": [
+            "generated::gpio::DATA_IN_RESET",
+            "generated::gpio::DIRECT_OUT_RESET",
+            "generated::gpio::DIRECT_OE_RESET",
+            "generated::gpio::INTR_STATE_RESET",
+            "generated::gpio::INTR_ENABLE_RESET",
+            "generated::gpio::INTR_RISE_RESET",
+            "generated::gpio::INTR_FALL_RESET",
+        ],
+        "model/peripherals/rv_timer.h": [
+            "generated::rv_timer::CTRL_RESET",
+            "generated::rv_timer::CFG0_RESET",
+            "generated::rv_timer::TIMER_V_LOWER_RESET",
+            "generated::rv_timer::TIMER_V_UPPER_RESET",
+            "generated::rv_timer::COMPARE_LOWER_RESET",
+            "generated::rv_timer::COMPARE_UPPER_RESET",
+            "generated::rv_timer::INTR_STATE_RESET",
+            "generated::rv_timer::INTR_ENABLE_RESET",
+        ],
+        "model/peripherals/spi_device.h": [
+            "generated::spi_device::CONTROL_RESET",
+            "generated::spi_device::CFG_RESET",
+        ],
+        "model/irq/irq_controller.h": [
+            "generated::irq::PENDING_RESET",
+            "generated::irq::ENABLE_RESET",
+        ],
+    }
+
+    for filename, symbols in model_requirements.items():
+        source = (ROOT / filename).read_text()
+        missing = [symbol for symbol in symbols if symbol not in source]
+        if missing:
+            raise SystemExit(
+                f"FAIL: {filename} does not consume generated reset metadata: "
+                + ", ".join(missing)
+            )
+
+    print("[PASS] peripheral and IRQ reset values consume generated YAML metadata")
+
+
+def check_irq_w1c_metadata():
+    spec = load(SOURCE_SPECS / "irq.yaml")
+    pending = next(reg for reg in spec["registers"] if reg["name"] == "PENDING")
+    if pending["access"] != "W1C":
+        raise SystemExit("FAIL: IRQ PENDING must be declared W1C in YAML")
+
+    header = (ROOT / "generated" / "include" / "irq.h").read_text()
+    if 'PENDING_ACCESS = "W1C"' not in header:
+        raise SystemExit("FAIL: generated IRQ metadata lost PENDING W1C access")
+    if '{"PENDING", 0x00000000, 0x00000000, 0xFFFFFFFF, RegisterAccess::W1C}' not in header:
+        raise SystemExit("FAIL: IRQ PENDING metadata is not generated as W1C")
+
+    controller = (ROOT / "model" / "irq" / "irq_controller.h").read_text()
+    if "pending &= ~value;" not in controller:
+        raise SystemExit("FAIL: IRQ PENDING W1C behavior is missing")
+    print("[PASS] IRQ PENDING W1C metadata matches the model behavior")
+
+
+def expect_field_generation():
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        out_dir = temp_root / "generated"
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = SOURCE_SPECS
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        header = (out_dir / "include" / "uart0.h").read_text()
+        software = (out_dir / "sw" / "uart0.h").read_text()
+        required_header = [
+            "CTRL_TX_BIT_OFFSET = 0",
+            "CTRL_TX_BIT_WIDTH = 1",
+            "CTRL_TX_MASK = 0x00000001",
+            "CTRL_RX_BIT_OFFSET = 1",
+            "CTRL_RX_BIT_WIDTH = 1",
+            "CTRL_RX_MASK = 0x00000002",
+        ]
+        required_software = [
+            "UART0_CTRL_TX_MASK 0x00000001",
+            "UART0_CTRL_RX_MASK 0x00000002",
+        ]
+        if any(fragment not in header for fragment in required_header):
+            raise SystemExit("FAIL: generated C++ field masks do not match UART YAML")
+        if any(fragment not in software for fragment in required_software):
+            raise SystemExit("FAIL: generated software field masks do not match UART YAML")
+    print("[PASS] UART YAML fields generate C++ and software masks")
+
+
 def main():
+    expect_sram_image_and_distinct_latency()
+
     expect_failure(
         "overlapping memory ranges",
         lambda spec_dir: overlap(spec_dir),
+    )
+
+    expect_failure(
+        "memory range endpoint overflows uint64",
+        lambda spec_dir: address_range_overflow(spec_dir),
     )
 
     expect_failure(
@@ -60,9 +1450,92 @@ def main():
     )
 
     expect_failure(
+        "non-string register access",
+        lambda spec_dir: non_string_access(spec_dir),
+    )
+
+    expect_failure(
         "unaligned register offset",
         lambda spec_dir: unaligned_offset(spec_dir),
     )
+
+    expect_failure(
+        "register offset outside 32-bit range",
+        lambda spec_dir: out_of_range_offset(spec_dir),
+    )
+
+    expect_failure(
+        "invalid C++ register identifier",
+        lambda spec_dir: invalid_register_identifier(spec_dir),
+    )
+
+    expect_failure(
+        "invalid C++ memory-map identifier",
+        lambda spec_dir: invalid_memory_map_identifier(spec_dir),
+    )
+
+    expect_failure(
+        "duplicate register name",
+        lambda spec_dir: duplicate_register_name(spec_dir),
+    )
+
+    expect_failure(
+        "duplicate register offset",
+        lambda spec_dir: duplicate_register_offset(spec_dir),
+    )
+
+    expect_failure(
+        "out-of-range reset value",
+        lambda spec_dir: invalid_reset(spec_dir),
+    )
+
+    expect_failure(
+        "out-of-range register mask",
+        lambda spec_dir: invalid_mask(spec_dir),
+    )
+    expect_failure(
+        "field exceeds register width",
+        lambda spec_dir: invalid_field_range(spec_dir),
+    )
+    expect_failure(
+        "overlapping register fields",
+        lambda spec_dir: overlapping_fields(spec_dir),
+    )
+    expect_failure(
+        "invalid field access",
+        lambda spec_dir: invalid_field_access(spec_dir),
+    )
+    expect_failure(
+        "duplicate field name",
+        lambda spec_dir: duplicate_field_name(spec_dir),
+    )
+    expect_failure(
+        "zero-sized memory region",
+        lambda spec_dir: zero_sized_memory_region(spec_dir),
+    )
+
+    expect_failure(
+        "invalid memory-map type",
+        lambda spec_dir: invalid_memory_map_type(spec_dir),
+    )
+    expect_failure(
+        "register extends beyond peripheral region",
+        lambda spec_dir: register_outside_region(spec_dir),
+    )
+    expect_gpio_yaml_register_runtime()
+    expect_address_relocation()
+    expect_register_relocation()
+    expect_register_addition()
+    expect_field_generation()
+    expect_generated_runtime_behavior()
+    expect_interconnect_address_relocation()
+    check_interconnect_dmi_respects_generated_range()
+    check_firmware_uses_generated_bases()
+    check_models_use_generated_memory_ranges()
+    check_models_use_generated_register_offsets()
+    check_models_use_generated_reset_values()
+    check_models_enforce_generated_register_policy()
+    check_irq_w1c_metadata()
 
     print("GENERATOR VALIDATION TEST: PASS")
 
@@ -74,6 +1547,14 @@ def overlap(spec_dir):
     save(path, data)
 
 
+def address_range_overflow(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["base"] = "0xFFFFFFFFFFFFFFFF"
+    data["memory_map"][0]["size"] = 1
+    save(path, data)
+
+
 def invalid_access(spec_dir):
     path = spec_dir / "uart.yaml"
     data = load(path)
@@ -81,10 +1562,127 @@ def invalid_access(spec_dir):
     save(path, data)
 
 
+def non_string_access(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["access"] = ["RW"]
+    save(path, data)
+
+
 def unaligned_offset(spec_dir):
     path = spec_dir / "gpio.yaml"
     data = load(path)
     data["registers"][0]["offset"] = 2
+    save(path, data)
+
+
+def out_of_range_offset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["offset"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_register_identifier(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["name"] = "CTRL-REGISTER"
+    save(path, data)
+
+
+def invalid_memory_map_identifier(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["name"] = "ROM-BLOCK"
+    save(path, data)
+
+
+def duplicate_register_name(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][1]["name"] = data["registers"][0]["name"]
+    save(path, data)
+
+
+def duplicate_register_offset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][1]["offset"] = data["registers"][0]["offset"]
+    save(path, data)
+
+
+def invalid_reset(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    data["registers"][0]["reset"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_field_range(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"] = [{
+        "name": "TX",
+        "bit_offset": 31,
+        "bit_width": 2,
+        "access": "RW",
+    }]
+    save(path, data)
+
+def overlapping_fields(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"] = [
+        {"name": "TX", "bit_offset": 0, "bit_width": 2, "access": "RW"},
+        {"name": "RX", "bit_offset": 1, "bit_width": 1, "access": "RW"},
+    ]
+    save(path, data)
+
+
+def invalid_field_access(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"][0]["access"] = "INVALID"
+    save(path, data)
+
+
+def duplicate_field_name(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"][1]["name"] = ctrl["fields"][0]["name"]
+    save(path, data)
+
+
+def zero_sized_memory_region(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["size"] = 0
+    save(path, data)
+
+
+def invalid_mask(spec_dir):
+    path = spec_dir / "gpio.yaml"
+    data = load(path)
+    data["registers"][0]["mask"] = "0x100000000"
+    save(path, data)
+
+
+def invalid_memory_map_type(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["type"] = "flash-ish"
+    save(path, data)
+
+
+def register_outside_region(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    uart = next(entry for entry in data["memory_map"] if entry["name"] == "UART0")
+    uart["size"] = "0x10"
     save(path, data)
 
 

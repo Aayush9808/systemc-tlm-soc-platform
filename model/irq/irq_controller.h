@@ -6,8 +6,12 @@
 
 #include <cstdint>
 
+#include "../../generated/include/irq.h"
+#include "../../generated/include/soc_memory_map.h"
+
 class IrqController : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(IrqController);
     tlm_utils::simple_target_socket<IrqController> socket;
 
     sc_core::sc_in<bool> timer_irq;
@@ -18,20 +22,25 @@ public:
     sc_core::sc_out<bool> cpu_irq;
 
     enum Register : uint32_t {
-        PENDING  = 0x00,
-        ENABLE   = 0x04,
-        CLAIM    = 0x08,
-        COMPLETE = 0x0C
+        PENDING  = generated::irq::PENDING_OFFSET,
+        ENABLE   = generated::irq::ENABLE_OFFSET,
+        CLAIM    = generated::irq::CLAIM_OFFSET,
+        COMPLETE = generated::irq::COMPLETE_OFFSET
     };
 
-    IrqController(sc_core::sc_module_name name)
+    IrqController(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
           timer_irq("timer_irq"),
           spi_irq("spi_irq"),
           gpio_irq("gpio_irq"),
           uart_irq("uart_irq"),
-          cpu_irq("cpu_irq") {
+          cpu_irq("cpu_irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -58,8 +67,10 @@ public:
     }
 
 private:
-    uint32_t pending = 0;
-    uint32_t enable = 0;
+    sc_core::sc_time transaction_latency_;
+
+    uint32_t pending = generated::irq::PENDING_RESET;
+    uint32_t enable = generated::irq::ENABLE_RESET;
     uint32_t claimed = 0;
 
     bool reset_requested = false;
@@ -76,8 +87,8 @@ private:
         if (reset_requested) {
             reset_requested = false;
 
-            pending = 0;
-            enable = 0;
+            pending = generated::irq::PENDING_RESET;
+            enable = generated::irq::ENABLE_RESET;
             claimed = 0;
 
             cpu_irq.write(false);
@@ -142,10 +153,30 @@ private:
             return;
         }
 
-        if (address >= 0x10000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::IRQ
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
+            return;
+        }
+
+        const auto* register_metadata = generated::irq::find_register(
+            static_cast<uint32_t>(address)
+        );
+
+        if (register_metadata == nullptr) {
+            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+
+        if ((trans.is_read() &&
+             !generated::irq::allows_read(*register_metadata)) ||
+            (trans.is_write() &&
+             !generated::irq::allows_write(*register_metadata))) {
+            trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
             return;
         }
 
@@ -153,7 +184,10 @@ private:
 
             write_register(
                 address,
-                get_value(data)
+                generated::apply_register_mask(
+                    *register_metadata,
+                    get_value(data)
+                )
             );
 
         }
@@ -173,10 +207,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE

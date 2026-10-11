@@ -10,6 +10,16 @@ Generated from the device schema.
 - `TX` offset=`0x0000000C` access=`WO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `RX` offset=`0x00000010` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 
+## Generated test vectors
+
+| Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |
+|---|---:|---|---|---:|
+| CONTROL | 0x00000000 | yes | yes | 0xFFFFFFFF |
+| CFG | 0x00000000 | yes | yes | 0xFFFFFFFF |
+| STATUS | 0x00000000 | yes | no | 0xFFFFFFFF |
+| TX | 0x00000000 | no | yes | 0xFFFFFFFF |
+| RX | 0x00000000 | yes | no | 0xFFFFFFFF |
+
 ## Generator validation
 
 - Register names are unique.

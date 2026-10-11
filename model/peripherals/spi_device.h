@@ -5,6 +5,9 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+
+#include "../../generated/include/spi_device.h"
+#include "../../generated/include/soc_memory_map.h"
 #include <deque>
 
 class SpiDevice : public sc_core::sc_module {
@@ -13,17 +16,22 @@ public:
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CONTROL = 0x00,
-        CFG     = 0x04,
-        STATUS  = 0x08,
-        TX      = 0x0C,
-        RX      = 0x10
+        CONTROL = generated::spi_device::CONTROL_OFFSET,
+        CFG     = generated::spi_device::CFG_OFFSET,
+        STATUS  = generated::spi_device::STATUS_OFFSET,
+        TX      = generated::spi_device::TX_OFFSET,
+        RX      = generated::spi_device::RX_OFFSET
     };
 
-    SpiDevice(sc_core::sc_module_name name)
+    SpiDevice(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -34,8 +42,8 @@ public:
     }
 
     void reset() {
-        control = 0;
-        cfg = 0;
+        control = generated::spi_device::CONTROL_RESET;
+        cfg = generated::spi_device::CFG_RESET;
 
         tx_fifo.clear();
         rx_fifo.clear();
@@ -44,8 +52,10 @@ public:
     }
 
 private:
-    uint32_t control = 0;
-    uint32_t cfg = 0;
+    sc_core::sc_time transaction_latency_;
+
+    uint32_t control = generated::spi_device::CONTROL_RESET;
+    uint32_t cfg = generated::spi_device::CFG_RESET;
 
     std::deque<uint8_t> tx_fifo;
     std::deque<uint8_t> rx_fifo;
@@ -81,7 +91,10 @@ private:
             return;
         }
 
-        if (address >= 0x1000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::SPI_DEVICE
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
@@ -91,11 +104,31 @@ private:
         uint32_t offset =
             static_cast<uint32_t>(address);
 
+        const auto* register_metadata = generated::spi_device::find_register(
+            static_cast<uint32_t>(address)
+        );
+
+        if (register_metadata == nullptr) {
+            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+
+        if ((trans.is_read() &&
+             !generated::spi_device::allows_read(*register_metadata)) ||
+            (trans.is_write() &&
+             !generated::spi_device::allows_write(*register_metadata))) {
+            trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+            return;
+        }
+
         if (trans.is_write()) {
 
             write_register(
                 offset,
-                get_value(data)
+                generated::apply_register_mask(
+                    *register_metadata,
+                    get_value(data)
+                )
             );
 
         }
@@ -115,10 +148,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
@@ -208,15 +238,22 @@ private:
 
         tx_fifo.push_back(value8);
 
+        // This reduced model completes each transfer synchronously: the
+        // shift engine consumes the oldest TX byte immediately. Keeping the
+        // dequeue explicit preserves FIFO ordering without leaving the TX
+        // FIFO permanently full after sixteen writes.
+        const uint8_t transmitted = tx_fifo.front();
+        tx_fifo.pop_front();
+
         uint8_t received;
 
         // CFG bit 0 selects simple loopback.
         if (cfg & 0x1) {
-            received = value8;
+            received = transmitted;
         }
         else {
             received =
-                static_cast<uint8_t>(value8 ^ 0xFF);
+                static_cast<uint8_t>(transmitted ^ 0xFF);
         }
 
         if (rx_fifo.size() < FIFO_SIZE) {

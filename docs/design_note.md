@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This project implements a reusable virtual platform for a small firmware-visible RISC-V-style SoC using SystemC 3.0.2 and TLM-2.0.
+This project implements a reusable virtual platform for a small firmware-visible RISC-V-style SoC using SystemC/TLM-2.0. The local setup uses SystemC 3.0.2; CI also verifies SystemC 2.3.4 with GNU C++ 13.3.0.
 
 The baseline uses a scripted TLM initiator instead of a full RISC-V ISS so the assignment remains focused on platform modeling, register behavior, routing, timing, interrupts, generation, verification and performance.
 
@@ -51,6 +51,8 @@ The source of truth is specs/soc.yaml.
 
 Targets implement b_transport with annotated SystemC delays.
 
+ROM is initialized from a deterministic built-in data table by default, or from an optional binary image passed with `--rom-image`. The image is loaded into the configured generated ROM size; missing, unreadable or oversized images fail initialization rather than silently truncating the firmware. SRAM is zero-initialized by default or can load an optional binary image with `--sram-image`; oversized and unreadable images fail initialization.
+
 The baseline transaction contract is:
 
 - 32-bit accesses;
@@ -61,9 +63,9 @@ The baseline transaction contract is:
 - complete transaction must fit in the target range;
 - deterministic response status for invalid transactions.
 
-The negative TLM test covers valid access, unaligned address, invalid length, invalid streaming width, byte enable, unsupported command and out-of-bounds access.
+The negative TLM test covers valid access, unaligned address, invalid length, invalid streaming width, byte enable, unsupported command and out-of-bounds access. The generator regression also compiles a memory probe that verifies SRAM image contents and distinct read/write latency annotations.
 
-The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation.
+The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation. The shared interconnect separately annotates a configurable 2 ns default traversal and serializes overlapping annotated arrivals with a next-available-time slot. This is a deterministic fixed-latency contention approximation, not cycle-accurate arbitration or beat-level bandwidth modeling. The ROM read latency is configurable through `--rom-latency-ns` (10 ns default). SRAM read/write latencies are independently configurable through `--sram-read-latency-ns` and `--sram-write-latency-ns` (10 ns defaults); `--sram-latency-ns` sets both for compatibility. The interconnect adds a configurable 2 ns default traversal delay via `--interconnect-latency-ns`. `--peripheral-latency-ns` sets the common 10 ns default for UART/GPIO/timer/SPI/IRQ, with individual `--uart-latency-ns`, `--gpio-latency-ns`, `--timer-latency-ns`, `--spi-latency-ns` and `--irq-latency-ns` overrides. These settings affect annotated transport delay, not the timer counter's tick configuration. The ROM image path is optionally supplied with `--rom-image`.
 
 ## 5. Timing model
 
@@ -79,13 +81,15 @@ The same architectural transactions and checks are executed, but the scenario av
 
 The timer is independent of host wall-clock time. Its counter is derived from sc_time_stamp(), prescaler and step configuration. Compare interrupts are scheduled with SystemC events.
 
-A temporal-decoupling/quantum optimization is intentionally not part of the baseline. Explicit synchronization keeps the model simple and deterministic.
+A quantum keeper is not used by the firmware-like SoC initiator, which waits on each `b_transport` annotation in timed-LT mode. The benchmark has a separate `--quantum-ns 100` mode using `tlm_utils::tlm_quantumkeeper`; CI compares it with the baseline and requires identical transaction counts, simulated time and checksum. In the recorded 1M-iteration experiment, the quantum path reduced synchronization calls from 2,006,000 to 240,720 and improved throughput by about 2.18x. This result is specific to the benchmark workload, which does not observe asynchronous timer/IRQ state during the quantum window. Functional-fast remains a functional comparison mode, not a timing-equivalent optimization.
 
 ## 6. Schema-driven generation
 
 YAML is the source of truth.
 
-specs/soc.yaml defines the memory map. Device schemas define register names, offsets, reset values, masks and access types.
+specs/soc.yaml defines the memory map. Device schemas (`uart.yaml`, `gpio.yaml`, `rv_timer.yaml`, `spi_device.yaml` and `irq.yaml`) define register names, offsets, reset values, masks and access types. Firmware scenarios and peripheral register enums consume generated offset constants, so relocating a declared register updates the software-side transaction address as well as generated metadata.
+
+Register field definitions are optional per register and validated for identifier validity, unique names, bit ranges, supported access types and overlapping bit positions. The UART CTRL schema demonstrates TX/RX fields; generated C++ constants, software macros, register documentation and verification metadata expose their bit offsets, widths and masks.
 
 The generator validates:
 
@@ -102,25 +106,27 @@ The generator validates:
 
 It generates memory-map constants, register metadata, dispatch helpers, software headers, register documentation and verification artifacts.
 
-Generated code is kept separate from handwritten model behavior. Static metadata is generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten.
+Generated code is kept separate from handwritten model behavior. Static metadata and register offsets are generated; FIFO behavior, timer scheduling, GPIO edge detection, SPI exchange and IRQ behavior remain handwritten. Generated reset constants are consumed by peripheral and IRQ state initialization/reset paths. All register-backed peripheral and IRQ targets call their generated per-device `find_register`, `allows_read` and `allows_write` APIs from the corresponding generated `*_registers.cpp` translation unit before accepting a transaction: unknown offsets are rejected, RO/WO access rules are enforced, and write values are masked according to YAML. The generated dispatch sources are linked into the SoC simulator, demo and benchmark rather than being unused artifacts. W1C behavior remains implemented in each target's state-transition logic and is covered by integration checks.
+
+The interconnect's address-range selection is data-driven, and the regression suite compiles the real interconnect against a test-generated map to prove that relocating UART0 in YAML routes a TLM transaction at the new base to the UART socket with a target-local offset; the old address becomes unmapped. An additional end-to-end regression regenerates the full SoC with UART0 relocated to 0x50000000 and WDATA moved to 0x20, compiles the real firmware-like initiator and benchmark against those artifacts, and runs both timing modes. The invalid-address scenario derives its probe address from the generated map, so it remains truly unmapped after relocation. The socket inventory and `TargetId` dispatch switch are still handwritten for the seven supported targets. A generated range whose target is not wired into that switch is rejected with a deterministic address-error response rather than being left incomplete. Therefore changing an existing target's base/size is schema-driven, but introducing a brand-new target still requires adding its socket, binding and dispatch case in C++.
 
 The generator also has a --check mode that generates into a temporary directory and compares the result with committed generated output, so stale generated files are detected without modifying the repository.
 
 ## 7. Peripheral and host behavior
 
-UART provides control/status/data/FIFO/interrupt registers, TX host-console output, RX injection and interrupt state.
+UART provides control/status/data/FIFO/interrupt registers, TX host-console output, RX injection/dequeue, FIFO reset side effects and interrupt state. Regression tests also reject invalid alignment, length, byte-enable and command requests.
 
 GPIO provides input/output/output-enable state, direct and masked writes, rising/falling edge configuration and interrupt state. Output changes can be observed through the model callback.
 
-The timer exposes a 64-bit value and compare through 32-bit registers. A lower-half read captures a coherent sample and the following upper-half read returns the matching upper half.
+The timer exposes a 64-bit value and compare through 32-bit registers. A lower-half read captures a coherent sample and the following upper-half read returns the matching upper half. The integration regression seeds the counter near the 32-bit boundary, captures the lower half, advances simulated time across rollover, and checks both the latched upper half and the subsequent live upper half. Reset verification also checks both counter halves, both compare halves, interrupt enable/state, and control/configuration registers.
 
-SPI provides reduced control/config/status/TX/RX FIFO behavior. Configuration affects the modeled exchange and RX availability can raise an interrupt. Full flash/TPM functionality is intentionally outside the reduced model.
+SPI provides reduced control/config/status/TX/RX FIFO behavior. Each TX write completes a simplified transfer synchronously and drains the TX FIFO; received bytes accumulate independently in the bounded RX FIFO, whose availability can raise an interrupt. Regression coverage writes more than the FIFO capacity to verify TX does not remain permanently full while RX saturation is reported. Full flash/TPM functionality is intentionally outside the reduced model.
 
 ## 8. Interrupt architecture
 
 UART, GPIO, timer and SPI drive interrupt signals into a minimal PLIC-like controller.
 
-The controller exposes pending, enable, claim and complete registers. A pending and enabled source becomes claimable. Claim returns a deterministic source ID and completion releases the claimed source.
+The controller exposes pending, enable, claim and complete registers. A pending and enabled source becomes claimable. Claim returns a deterministic source ID and completion releases the claimed source. Claim priority is fixed by source order (timer, SPI, GPIO, UART); programmable priority and threshold registers are not implemented in this reduced model.
 
 The timer uses event-driven compare scheduling. GPIO interrupts are generated from input transitions. UART and SPI interrupts are generated from FIFO/event conditions.
 
@@ -128,17 +134,17 @@ This keeps interrupt behavior event-driven instead of using host wall-clock poll
 
 ## 9. DMI
 
-SRAM grants DMI over its memory. The interconnect translates the DMI target-local range back into the system address map.
+SRAM grants DMI over its memory. The interconnect translates the DMI target-local range back into the system address map and clamps the advertised DMI window to the SRAM range declared by the generated memory map. This prevents a target's broader local DMI grant from exposing addresses outside the firmware-visible SRAM mapping.
 
-The standalone TLM/DMI demonstration verifies that a direct DMI write is visible through a later TLM read. The benchmark also compares repeated TLM accesses with direct DMI accesses.
+The standalone TLM/DMI demonstration and negative test verify consistency in both directions: DMI write→TLM read and TLM write→DMI read. The CI benchmark also compares repeated TLM accesses with direct DMI accesses.
 
-Because the SRAM mapping is static, runtime DMI invalidation is not required by the current model. If memory remapping were introduced, standard DMI invalidation would be required.
+Because the SRAM mapping and backing storage are static for the lifetime of this simulation, runtime DMI invalidation is not required by the current model. If a target changes a granted DMI pointer, access permissions, or mapped range while the simulation is running, it must invalidate affected DMI regions with the standard TLM invalidation path so initiators do not continue using stale pointers. Any future remapping or dynamic permission changes must add an invalidation regression test.
 
 ## 10. Reset
 
 Reset is explicit and deterministic. The integrated scenario first advances simulated time, creates state in the devices, then calls reset on SRAM, UART, GPIO, timer, SPI and IRQ controller.
 
-After zero-time synchronization it checks that memory, peripheral state and interrupt signals are cleared. This also verifies that reset is exercised after simulation time is non-zero.
+Before reset, the regression explicitly verifies that the SPI interrupt source is active, its pending bit is set, and the CPU IRQ line is asserted. After zero-time synchronization it checks that memory, peripheral state and interrupt signals are cleared. This verifies reset under a pending interrupt after simulation time is non-zero.
 
 There is no global mutable singleton reset state.
 
@@ -150,7 +156,7 @@ Verification has three levels.
 
 TLM transaction-policy checks validate width, alignment, streaming width, byte enables, command type and bounds.
 
-The generator validates malformed schema conditions before producing output.
+The generator validates malformed schema conditions before producing output. Register offsets for UART, GPIO, RV_TIMER, SPI_DEVICE and the IRQ controller are declared in YAML and emitted as C++ constants; the scripted firmware uses those generated offsets instead of numeric register offsets.
 
 ### Integration
 
@@ -166,7 +172,7 @@ The firmware-style scenario checks:
 - SPI exchange and IRQ;
 - reset and post-reset state.
 
-The same scenario runs in timed-LT and functional-fast modes.
+The same scenario runs in timed-LT and functional-fast modes. A relocated-schema regression repeats the timed-LT scenario and compares the full output byte-for-byte to check determinism.
 
 ### Determinism
 
@@ -178,9 +184,9 @@ The interconnect counts transactions and bytes per target. Tracing is optional a
 
 The mixed benchmark measures host runtime, simulated time, transaction throughput, per-target traffic and checksum.
 
-The separate DMI experiment measures the direct-memory path against TLM transport. The trace experiment measures the cost of detailed transaction output.
+CI measures the direct-memory path against TLM transport with matched operation count/checksum, compares trace-on/off consistency and records trace overhead.
 
-The main baseline bottleneck is normal TLM/SystemC transport and scheduling. A possible future optimization is temporal-decoupling/quantum batching, but it is intentionally not enabled because explicit LT synchronization is easier to verify.
+The measured baseline bottleneck is repeated TLM transport plus synchronization. The benchmark quantifies quantum batching as an optional optimization; the scripted firmware initiator remains explicitly synchronized for clear MMIO/IRQ observation. The chosen fidelity trade-off is a fixed-latency serialized interconnect rather than cycle-accurate arbitration.
 
 ## 13. Scaling and future extensions
 
@@ -194,7 +200,7 @@ Device-tree/SVD generation, checkpointing, visualization and differential testin
 
 This is a virtual platform, not a cycle-accurate implementation.
 
-The CPU is scripted rather than a full ISS. SPI and the IRQ controller are reduced functional models. Target timing is loosely timed rather than a detailed pipeline, arbitration or NoC timing model.
+The CPU is scripted rather than a full ISS. SPI and the IRQ controller are reduced functional models. Target timing is loosely timed; the interconnect uses fixed-latency serialization rather than programmable arbitration, beat-level bandwidth or a NoC timing model.
 
 These trade-offs are deliberate: they preserve the required TLM architecture, firmware-visible behavior, deterministic testing, generation flow and measurable performance without adding unnecessary implementation risk.
 

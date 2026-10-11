@@ -1,30 +1,22 @@
 #pragma once
 
 #include <cstdint>
+#include "register_metadata.h"
 
 namespace generated {
-
-enum class RegisterAccess {
-    RO,
-    RW,
-    WO,
-    W1C
-};
-
-struct RegisterMetadata {
-    const char* name;
-    uint32_t offset;
-    uint32_t reset;
-    uint32_t mask;
-    RegisterAccess access;
-};
 
 namespace uart0 {
 
 constexpr uint32_t CTRL_OFFSET = 0x00000000;
 constexpr uint32_t CTRL_RESET = 0x00000000;
-constexpr uint32_t CTRL_MASK = 0xFFFFFFFF;
+constexpr uint32_t CTRL_MASK = 0x00000003;
 constexpr const char* CTRL_ACCESS = "RW";
+constexpr uint32_t CTRL_TX_BIT_OFFSET = 0;
+constexpr uint32_t CTRL_TX_BIT_WIDTH = 1;
+constexpr uint32_t CTRL_TX_MASK = 0x00000001;
+constexpr uint32_t CTRL_RX_BIT_OFFSET = 1;
+constexpr uint32_t CTRL_RX_BIT_WIDTH = 1;
+constexpr uint32_t CTRL_RX_MASK = 0x00000002;
 
 constexpr uint32_t STATUS_OFFSET = 0x00000004;
 constexpr uint32_t STATUS_RESET = 0x00000000;
@@ -62,7 +54,7 @@ constexpr uint32_t INTR_ENABLE_MASK = 0xFFFFFFFF;
 constexpr const char* INTR_ENABLE_ACCESS = "RW";
 
 constexpr RegisterMetadata REGISTERS[] = {
-    {"CTRL", 0x00000000, 0x00000000, 0xFFFFFFFF, RegisterAccess::RW},
+    {"CTRL", 0x00000000, 0x00000000, 0x00000003, RegisterAccess::RW},
     {"STATUS", 0x00000004, 0x00000000, 0xFFFFFFFF, RegisterAccess::RO},
     {"RDATA", 0x00000008, 0x00000000, 0xFFFFFFFF, RegisterAccess::RO},
     {"WDATA", 0x0000000C, 0x00000000, 0xFFFFFFFF, RegisterAccess::WO},
@@ -74,6 +66,10 @@ constexpr RegisterMetadata REGISTERS[] = {
 
 constexpr unsigned int REGISTER_COUNT =
     sizeof(REGISTERS) / sizeof(REGISTERS[0]);
+
+const RegisterMetadata* find_register(uint32_t offset);
+bool allows_read(const RegisterMetadata& reg);
+bool allows_write(const RegisterMetadata& reg);
 
 }
 }

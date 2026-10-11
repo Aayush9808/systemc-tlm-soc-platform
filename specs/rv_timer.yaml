@@ -17,12 +17,12 @@ registers:
 
   - name: TIMER_V_LOWER
     offset: 0x08
-    access: RO
+    access: RW
     reset: 0x00000000
 
   - name: TIMER_V_UPPER
     offset: 0x0C
-    access: RO
+    access: RW
     reset: 0x00000000
 
   - name: COMPARE_LOWER

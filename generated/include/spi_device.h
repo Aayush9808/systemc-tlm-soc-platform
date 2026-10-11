@@ -1,23 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include "register_metadata.h"
 
 namespace generated {
-
-enum class RegisterAccess {
-    RO,
-    RW,
-    WO,
-    W1C
-};
-
-struct RegisterMetadata {
-    const char* name;
-    uint32_t offset;
-    uint32_t reset;
-    uint32_t mask;
-    RegisterAccess access;
-};
 
 namespace spi_device {
 
@@ -56,6 +42,10 @@ constexpr RegisterMetadata REGISTERS[] = {
 
 constexpr unsigned int REGISTER_COUNT =
     sizeof(REGISTERS) / sizeof(REGISTERS[0]);
+
+const RegisterMetadata* find_register(uint32_t offset);
+bool allows_read(const RegisterMetadata& reg);
+bool allows_write(const RegisterMetadata& reg);
 
 }
 }

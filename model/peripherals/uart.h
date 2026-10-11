@@ -5,6 +5,9 @@
 #include <tlm_utils/simple_target_socket.h>
 
 #include <cstdint>
+
+#include "../../generated/include/uart0.h"
+#include "../../generated/include/soc_memory_map.h"
 #include <deque>
 #include <iostream>
 
@@ -14,14 +17,14 @@ public:
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CTRL        = 0x00,
-        STATUS      = 0x04,
-        RDATA       = 0x08,
-        WDATA       = 0x0C,
-        FIFO_CTRL   = 0x10,
-        FIFO_STATUS = 0x14,
-        INTR_STATE  = 0x18,
-        INTR_ENABLE = 0x1C
+        CTRL        = generated::uart0::CTRL_OFFSET,
+        STATUS      = generated::uart0::STATUS_OFFSET,
+        RDATA       = generated::uart0::RDATA_OFFSET,
+        WDATA       = generated::uart0::WDATA_OFFSET,
+        FIFO_CTRL   = generated::uart0::FIFO_CTRL_OFFSET,
+        FIFO_STATUS = generated::uart0::FIFO_STATUS_OFFSET,
+        INTR_STATE  = generated::uart0::INTR_STATE_OFFSET,
+        INTR_ENABLE = generated::uart0::INTR_ENABLE_OFFSET
     };
 
     enum ControlBits : uint32_t {
@@ -39,10 +42,15 @@ public:
         RX_INTERRUPT = 1 << 1
     };
 
-    Uart(sc_core::sc_module_name name)
+    Uart(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -53,9 +61,9 @@ public:
     }
 
     void reset() {
-        ctrl = 0;
-        intr_state = 0;
-        intr_enable = 0;
+        ctrl = generated::uart0::CTRL_RESET;
+        intr_state = generated::uart0::INTR_STATE_RESET;
+        intr_enable = generated::uart0::INTR_ENABLE_RESET;
 
         tx_fifo.clear();
         rx_fifo.clear();
@@ -79,9 +87,11 @@ public:
     }
 
 private:
-    uint32_t ctrl = 0;
-    uint32_t intr_state = 0;
-    uint32_t intr_enable = 0;
+    sc_core::sc_time transaction_latency_;
+
+    uint32_t ctrl = generated::uart0::CTRL_RESET;
+    uint32_t intr_state = generated::uart0::INTR_STATE_RESET;
+    uint32_t intr_enable = generated::uart0::INTR_ENABLE_RESET;
 
     std::deque<uint8_t> tx_fifo;
     std::deque<uint8_t> rx_fifo;
@@ -118,15 +128,43 @@ private:
             return;
         }
 
-        if (address >= 0x1000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::UART0
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
             return;
         }
 
+        const auto* register_metadata = generated::uart0::find_register(
+            static_cast<uint32_t>(address)
+        );
+
+        if (register_metadata == nullptr) {
+            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+
+        if ((trans.is_read() &&
+             !generated::uart0::allows_read(*register_metadata)) ||
+            (trans.is_write() &&
+             !generated::uart0::allows_write(*register_metadata))) {
+            trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+            return;
+        }
+
         if (trans.is_write()) {
-            write_register(address, data);
+            unsigned char masked_data[4];
+            generated::store_register_value(
+                masked_data,
+                generated::apply_register_mask(
+                    *register_metadata,
+                    generated::load_register_value(data)
+                )
+            );
+            write_register(address, masked_data);
         }
         else if (trans.is_read()) {
             read_register(address, data);
@@ -138,10 +176,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE

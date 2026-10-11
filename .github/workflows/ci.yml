@@ -1,0 +1,136 @@
+name: Build and test SoC platform
+
+on:
+  push:
+    branches:
+      - main
+      - "fix/**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libsystemc-dev python3 python3-yaml
+
+      - name: Report toolchain and host
+        run: |
+          g++ --version
+          cmake --version
+          dpkg-query -W libsystemc-dev
+          lscpu
+
+      - name: Validate generated artifacts
+        run: python3 generator/generate.py --check
+
+      - name: Configure
+        run: cmake -S . -B build -DSYSTEMC_ROOT=/usr -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Run test suite
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Run million-iteration benchmark
+        run: ./build/soc_bench 1000000
+
+      - name: Compare baseline and temporal-decoupled benchmark
+        run: |
+          ./build/soc_bench 1000000 > /tmp/soc-bench-baseline.log
+          ./build/soc_bench 1000000 --quantum-ns 100 > /tmp/soc-bench-quantum.log
+          ./build/soc_bench 1000000 --dmi --quantum-ns 100 > /tmp/soc-bench-dmi.log
+          cat /tmp/soc-bench-baseline.log
+          cat /tmp/soc-bench-quantum.log
+          cat /tmp/soc-bench-dmi.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          baseline = Path("/tmp/soc-bench-baseline.log").read_text()
+          quantum = Path("/tmp/soc-bench-quantum.log").read_text()
+          dmi = Path("/tmp/soc-bench-dmi.log").read_text()
+
+          def value(output, label):
+              match = re.search(rf"^{re.escape(label)}:\s*(.+)$", output, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"missing benchmark metric: {label}")
+              return match.group(1).strip()
+
+          for output in (baseline, quantum, dmi):
+              if "Benchmark: PASS" not in output:
+                  raise SystemExit("benchmark did not report PASS")
+          for label in ("Bus transactions", "Simulated time", "Checksum", "Total operations"):
+              if value(baseline, label) != value(quantum, label):
+                  raise SystemExit(f"quantum changed {label}: "
+                                   f"{value(baseline, label)} != {value(quantum, label)}")
+          for label in ("Checksum", "Total operations"):
+              if value(quantum, label) != value(dmi, label):
+                  raise SystemExit(f"DMI changed {label}: "
+                                   f"{value(quantum, label)} != {value(dmi, label)}")
+          if int(value(dmi, "DMI operations")) != 2000000:
+              raise SystemExit("DMI benchmark did not execute 2,000,000 SRAM operations")
+          if int(value(dmi, "Bus transactions")) >= int(value(quantum, "Bus transactions")):
+              raise SystemExit("DMI path did not bypass SRAM bus transactions")
+          baseline_syncs = int(value(baseline, "Synchronization count"))
+          quantum_syncs = int(value(quantum, "Synchronization count"))
+          if quantum_syncs >= baseline_syncs:
+              raise SystemExit("quantum keeper did not reduce synchronization count")
+          def throughput(output):
+              return float(value(output, "Throughput").split()[0])
+          quantum_throughput = throughput(quantum)
+          dmi_throughput = throughput(dmi)
+          if dmi_throughput <= quantum_throughput:
+              raise SystemExit("DMI did not improve throughput over quantum TLM transport")
+          if float(value(dmi, "Simulated time").split()[0]) >= float(value(quantum, "Simulated time").split()[0]):
+              raise SystemExit("DMI path did not remove interconnect traversal time")
+          print("Temporal-decoupling comparison: PASS")
+          print(f"Baseline synchronization count: {baseline_syncs}")
+          print(f"Quantum synchronization count: {quantum_syncs}")
+          print("DMI/TLM comparison: PASS")
+          print(f"Quantum TLM throughput: {quantum_throughput:.0f} operations/s")
+          print(f"Quantum DMI throughput: {dmi_throughput:.0f} operations/s")
+          print(f"DMI speedup over quantum TLM: {dmi_throughput / quantum_throughput:.2f}x")
+          PY
+
+      - name: Compare tracing overhead
+        run: |
+          ./build/soc_bench 100000 > /tmp/soc-trace-off.log
+          ./build/soc_bench 100000 --trace > /tmp/soc-trace-on.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          off = Path("/tmp/soc-trace-off.log").read_text()
+          on = Path("/tmp/soc-trace-on.log").read_text()
+
+          def value(output, label):
+              match = re.search(rf"^{re.escape(label)}:\s*(.+)$", output, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"missing trace benchmark metric: {label}")
+              return match.group(1).strip()
+
+          if "[TRACE]" in off or "[TRACE]" not in on:
+              raise SystemExit("trace flag did not enable/disable trace records correctly")
+          for label in ("Bus transactions", "Total operations", "Simulated time", "Checksum"):
+              if value(off, label) != value(on, label):
+                  raise SystemExit(f"tracing changed {label}")
+          off_runtime = float(value(off, "Host runtime").split()[0])
+          on_runtime = float(value(on, "Host runtime").split()[0])
+          trace_records = on.count("[TRACE]")
+          if trace_records != int(value(on, "Bus transactions")):
+              raise SystemExit("trace record count does not match routed transaction count")
+          print("Trace on/off consistency: PASS")
+          print(f"Trace records: {trace_records}")
+          print(f"Trace-off runtime: {off_runtime:.6f} s")
+          print(f"Trace-on runtime: {on_runtime:.6f} s")
+          if off_runtime > 0:
+              print(f"Observed trace runtime ratio: {on_runtime / off_runtime:.2f}x")
+          PY

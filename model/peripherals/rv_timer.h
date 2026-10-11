@@ -6,26 +6,35 @@
 
 #include <cstdint>
 
+#include "../../generated/include/rv_timer.h"
+#include "../../generated/include/soc_memory_map.h"
+
 class RvTimer : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(RvTimer);
     tlm_utils::simple_target_socket<RvTimer> socket;
     sc_core::sc_out<bool> irq;
 
     enum Register : uint32_t {
-        CTRL          = 0x00,
-        CFG0          = 0x04,
-        TIMER_V_LOWER = 0x08,
-        TIMER_V_UPPER = 0x0C,
-        COMPARE_LOWER = 0x10,
-        COMPARE_UPPER = 0x14,
-        INTR_STATE    = 0x18,
-        INTR_ENABLE   = 0x1C
+        CTRL          = generated::rv_timer::CTRL_OFFSET,
+        CFG0          = generated::rv_timer::CFG0_OFFSET,
+        TIMER_V_LOWER = generated::rv_timer::TIMER_V_LOWER_OFFSET,
+        TIMER_V_UPPER = generated::rv_timer::TIMER_V_UPPER_OFFSET,
+        COMPARE_LOWER = generated::rv_timer::COMPARE_LOWER_OFFSET,
+        COMPARE_UPPER = generated::rv_timer::COMPARE_UPPER_OFFSET,
+        INTR_STATE    = generated::rv_timer::INTR_STATE_OFFSET,
+        INTR_ENABLE   = generated::rv_timer::INTR_ENABLE_OFFSET
     };
 
-    RvTimer(sc_core::sc_module_name name)
+    RvTimer(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -49,21 +58,27 @@ public:
     }
 
 private:
-    uint32_t ctrl = 0;
-    uint32_t cfg0 = 0;
+    sc_core::sc_time transaction_latency_;
 
-    uint64_t timer_value = 0;
-    uint64_t compare_value = 0;
+    uint32_t ctrl = generated::rv_timer::CTRL_RESET;
+    uint32_t cfg0 = generated::rv_timer::CFG0_RESET;
 
-    uint32_t intr_state = 0;
-    uint32_t intr_enable = 0;
+    uint64_t timer_value =
+        (static_cast<uint64_t>(generated::rv_timer::TIMER_V_UPPER_RESET) << 32) |
+        generated::rv_timer::TIMER_V_LOWER_RESET;
+    uint64_t compare_value =
+        (static_cast<uint64_t>(generated::rv_timer::COMPARE_UPPER_RESET) << 32) |
+        generated::rv_timer::COMPARE_LOWER_RESET;
+
+    uint32_t intr_state = generated::rv_timer::INTR_STATE_RESET;
+    uint32_t intr_enable = generated::rv_timer::INTR_ENABLE_RESET;
 
     bool timer_running = false;
 
     sc_core::sc_time timer_base_time =
         sc_core::SC_ZERO_TIME;
 
-    uint64_t timer_base_value = 0;
+    uint64_t timer_base_value = timer_value;
 
     uint64_t read_latch = 0;
     bool read_latch_valid = false;
@@ -102,15 +117,43 @@ private:
             return;
         }
 
-        if (address >= 0x1000) {
+        const auto* memory_range = generated::find_memory_range(
+            generated::TargetId::RV_TIMER
+        );
+        if (memory_range == nullptr || address >= memory_range->size) {
             trans.set_response_status(
                 tlm::TLM_ADDRESS_ERROR_RESPONSE
             );
             return;
         }
 
+        const auto* register_metadata = generated::rv_timer::find_register(
+            static_cast<uint32_t>(address)
+        );
+
+        if (register_metadata == nullptr) {
+            trans.set_response_status(tlm::TLM_ADDRESS_ERROR_RESPONSE);
+            return;
+        }
+
+        if ((trans.is_read() &&
+             !generated::rv_timer::allows_read(*register_metadata)) ||
+            (trans.is_write() &&
+             !generated::rv_timer::allows_write(*register_metadata))) {
+            trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
+            return;
+        }
+
         if (trans.is_write()) {
-            write_register(address, data);
+            unsigned char masked_data[4];
+            generated::store_register_value(
+                masked_data,
+                generated::apply_register_mask(
+                    *register_metadata,
+                    generated::load_register_value(data)
+                )
+            );
+            write_register(address, masked_data);
         }
         else if (trans.is_read()) {
             read_register(address, data);
@@ -122,10 +165,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
@@ -408,8 +448,11 @@ private:
 
         uint64_t step = get_step();
 
+        // Avoid overflow in remaining + step - 1 when the compare
+        // value is close to UINT64_MAX.
         uint64_t ticks =
-            (remaining + step - 1) / step;
+            remaining / step +
+            (remaining % step != 0 ? 1ULL : 0ULL);
 
         double tick_ns =
             10.0 *
@@ -436,21 +479,25 @@ private:
 
             compare_event.cancel();
 
-            ctrl = 0;
-            cfg0 = 0;
+            ctrl = generated::rv_timer::CTRL_RESET;
+            cfg0 = generated::rv_timer::CFG0_RESET;
 
-            timer_value = 0;
-            compare_value = 0;
+            timer_value =
+                (static_cast<uint64_t>(generated::rv_timer::TIMER_V_UPPER_RESET) << 32) |
+                generated::rv_timer::TIMER_V_LOWER_RESET;
+            compare_value =
+                (static_cast<uint64_t>(generated::rv_timer::COMPARE_UPPER_RESET) << 32) |
+                generated::rv_timer::COMPARE_LOWER_RESET;
 
-            intr_state = 0;
-            intr_enable = 0;
+            intr_state = generated::rv_timer::INTR_STATE_RESET;
+            intr_enable = generated::rv_timer::INTR_ENABLE_RESET;
 
             timer_running = false;
 
             timer_base_time =
                 sc_core::sc_time_stamp();
 
-            timer_base_value = 0;
+            timer_base_value = timer_value;
 
             read_latch = 0;
             read_latch_valid = false;

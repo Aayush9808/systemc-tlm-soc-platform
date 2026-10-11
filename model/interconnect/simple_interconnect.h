@@ -22,7 +22,10 @@ public:
     tlm_utils::simple_initiator_socket<SimpleInterconnect> spi_socket;
     tlm_utils::simple_initiator_socket<SimpleInterconnect> irq_socket;
 
-    SimpleInterconnect(sc_core::sc_module_name name)
+    SimpleInterconnect(
+        sc_core::sc_module_name name,
+        sc_core::sc_time interconnect_latency =
+            sc_core::sc_time(2, sc_core::SC_NS))
         : sc_core::sc_module(name),
           target_socket("target_socket"),
           rom_socket("rom_socket"),
@@ -31,7 +34,8 @@ public:
           gpio_socket("gpio_socket"),
           timer_socket("timer_socket"),
           spi_socket("spi_socket"),
-          irq_socket("irq_socket") {
+          irq_socket("irq_socket"),
+          interconnect_latency_(interconnect_latency) {
 
         target_socket.register_b_transport(
             this,
@@ -99,6 +103,8 @@ public:
 
 private:
     bool trace_enabled_ = false;
+    sc_core::sc_time interconnect_latency_;
+    sc_core::sc_time next_available_time_ = sc_core::SC_ZERO_TIME;
 
     uint64_t total_transactions_ = 0;
     uint64_t total_bytes_ = 0;
@@ -257,6 +263,15 @@ private:
             case generated::TargetId::IRQ:
                 irq_socket->b_transport(trans, delay);
                 break;
+
+            default:
+                // A generated map can describe a target that this handwritten
+                // interconnect has not wired yet. Fail deterministically rather
+                // than leaving the payload in TLM_INCOMPLETE_RESPONSE.
+                trans.set_response_status(
+                    tlm::TLM_ADDRESS_ERROR_RESPONSE
+                );
+                break;
         }
 
         trans.set_address(original_address);
@@ -298,11 +313,28 @@ private:
             return;
         }
 
+        // Single shared bus: requests whose annotated arrival times overlap
+        // serialize on a fixed-latency bus slot. This is a deterministic
+        // contention approximation, not cycle-accurate arbitration.
+        const sc_core::sc_time arrival_time =
+            sc_core::sc_time_stamp() + delay;
+        const sc_core::sc_time bus_start =
+            arrival_time < next_available_time_
+                ? next_available_time_
+                : arrival_time;
+        if (bus_start > arrival_time) {
+            delay += bus_start - arrival_time;
+        }
+
         route_to_target(
             *range,
             trans,
             delay
         );
+
+        // Annotate the mapped bus traversal independently of target latency.
+        delay += interconnect_latency_;
+        next_available_time_ = bus_start + interconnect_latency_;
 
         record_transaction(
             *range,
@@ -352,15 +384,41 @@ private:
             return false;
         }
 
-        dmi_data.set_start_address(
-            dmi_data.get_start_address()
-            + range->base
-        );
+        const uint64_t translated_start =
+            dmi_data.get_start_address() + range->base;
+        const uint64_t translated_end =
+            dmi_data.get_end_address() + range->base;
+        const uint64_t mapped_start = range->base;
+        const uint64_t mapped_end =
+            range->base + range->size - 1;
 
-        dmi_data.set_end_address(
-            dmi_data.get_end_address()
-            + range->base
-        );
+        // A target may expose a larger DMI window than the range declared
+        // in the generated map. Never advertise direct access beyond that
+        // firmware-visible mapping.
+        const uint64_t clamped_start =
+            translated_start < mapped_start
+                ? mapped_start
+                : translated_start;
+        const uint64_t clamped_end =
+            translated_end > mapped_end
+                ? mapped_end
+                : translated_end;
+
+        if (clamped_start > clamped_end) {
+            return false;
+        }
+
+        // DMI's pointer corresponds to start_address, so keep the pointer
+        // consistent if the lower bound ever needs clamping.
+        if (clamped_start > translated_start) {
+            dmi_data.set_dmi_ptr(
+                dmi_data.get_dmi_ptr()
+                + (clamped_start - translated_start)
+            );
+        }
+
+        dmi_data.set_start_address(clamped_start);
+        dmi_data.set_end_address(clamped_end);
 
         return true;
     }

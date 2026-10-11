@@ -6,7 +6,7 @@
 
 | Register | Offset | Access | Reset | Mask |
 |---|---:|---|---:|---:|
-| CTRL | 0x00000000 | RW | 0x00000000 | 0xFFFFFFFF |
+| CTRL | 0x00000000 | RW | 0x00000000 | 0x00000003 |
 | STATUS | 0x00000004 | RO | 0x00000000 | 0xFFFFFFFF |
 | RDATA | 0x00000008 | RO | 0x00000000 | 0xFFFFFFFF |
 | WDATA | 0x0000000C | WO | 0x00000000 | 0xFFFFFFFF |
@@ -14,3 +14,10 @@
 | FIFO_STATUS | 0x00000014 | RO | 0x00000000 | 0xFFFFFFFF |
 | INTR_STATE | 0x00000018 | W1C | 0x00000000 | 0xFFFFFFFF |
 | INTR_ENABLE | 0x0000001C | RW | 0x00000000 | 0xFFFFFFFF |
+
+### CTRL fields
+
+| Field | Bit offset | Width | Access | Mask |
+|---|---:|---:|---|---:|
+| TX | 0 | 1 | RW | 0x00000001 |
+| RX | 1 | 1 | RW | 0x00000002 |

@@ -17,6 +17,7 @@
 
 class TlmDemo : public sc_core::sc_module {
 public:
+    SC_HAS_PROCESS(TlmDemo);
     tlm_utils::simple_initiator_socket<TlmDemo> socket;
 
     sc_core::sc_signal<bool> timer_irq;
@@ -37,8 +38,8 @@ public:
     TlmDemo(sc_core::sc_module_name name)
         : sc_core::sc_module(name),
           socket("socket"),
-          memory("memory"),
-          rom("rom"),
+          memory("memory", generated::SRAM_SIZE),
+          rom("rom", generated::ROM_SIZE),
           uart("uart"),
           gpio("gpio"),
           timer("timer"),
