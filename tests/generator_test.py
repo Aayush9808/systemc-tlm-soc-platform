@@ -460,6 +460,9 @@ def expect_interconnect_address_relocation():
             if entry["name"] == "UART0"
         )
         uart_range["base"] = "0x50000000"
+        # WDATA at 0x20 is the final valid 4-byte access; 0x24 is the
+        # first unmapped byte immediately beyond this deliberately small IP.
+        uart_range["size"] = "0x24"
         sram_range = next(
             entry for entry in soc_data["memory_map"]
             if entry["name"] == "SRAM"
@@ -574,6 +577,10 @@ struct Initiator : sc_core::sc_module {
         transact(0x50000020ULL, 0x141, tlm::TLM_OK_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
 
+        // The first byte immediately beyond the declared region is unmapped.
+        transact(0x50000024ULL, 0x145, tlm::TLM_ADDRESS_ERROR_RESPONSE);
+        if (!passed) { sc_core::sc_stop(); return; }
+
         // The old register offset is no longer defined by generated metadata.
         transact(0x5000000CULL, 0x142, tlm::TLM_ADDRESS_ERROR_RESPONSE);
         if (!passed) { sc_core::sc_stop(); return; }
@@ -683,6 +690,7 @@ int sc_main(int, char**) {
     print("[PASS] relocated UART base routes real TLM transactions to the UART model")
     print("[PASS] relocated WDATA offset is accepted by the model; old offset is rejected")
     print("[PASS] old UART base is unmapped after YAML relocation")
+    print("[PASS] final in-range register and first-unmapped address boundary are enforced")
     print("[PASS] DMI grant is clamped to generated SRAM range")
 
 
