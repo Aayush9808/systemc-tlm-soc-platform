@@ -481,6 +481,17 @@ private:
         std::cout
             << "\n=== INVALID TRANSACTION SCENARIO ===\n";
 
+        uint32_t rom_before = 0;
+        uint32_t rom_after = 0;
+        if (!read32(generated::ROM_BASE, rom_before) ||
+            write32(generated::ROM_BASE, 0xDEADBEEFu) ||
+            !read32(generated::ROM_BASE, rom_after) ||
+            rom_before != rom_after) {
+            fail("ROM write protection failed");
+            return false;
+        }
+        std::cout << "ROM write protection: PASS\\n";
+
         uint32_t value = 0;
         const uint64_t invalid_address = find_unmapped_address();
 
@@ -507,6 +518,44 @@ private:
 
         std::cout
             << "\n=== UART IRQ SCENARIO ===\n";
+
+        auto expect_uart_response = [this](
+            tlm::tlm_command command,
+            uint64_t address,
+            unsigned int length,
+            unsigned int streaming_width,
+            bool byte_enable,
+            tlm::tlm_response_status expected) {
+            unsigned char data[8] = {};
+            unsigned char enables[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+            tlm::tlm_generic_payload trans;
+            trans.set_command(command);
+            trans.set_address(address);
+            trans.set_data_ptr(data);
+            trans.set_data_length(length);
+            trans.set_streaming_width(streaming_width);
+            trans.set_byte_enable_ptr(byte_enable ? enables : nullptr);
+            trans.set_byte_enable_length(byte_enable ? 4 : 0);
+            sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+            socket->b_transport(trans, delay);
+            return trans.get_response_status() == expected;
+        };
+        if (!expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE + 1,
+                4, 4, false, tlm::TLM_GENERIC_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE,
+                2, 2, false, tlm::TLM_GENERIC_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_READ_COMMAND, generated::UART0_BASE,
+                4, 4, true, tlm::TLM_BYTE_ENABLE_ERROR_RESPONSE) ||
+            !expect_uart_response(
+                tlm::TLM_IGNORE_COMMAND, generated::UART0_BASE,
+                4, 4, false, tlm::TLM_COMMAND_ERROR_RESPONSE)) {
+            fail("UART alignment/length/byte-enable/command policy failed");
+            return false;
+        }
+        std::cout << "UART invalid alignment/length/byte-enable/command policy: PASS\\n";
 
         // STATUS is schema-declared RO: a write must not alter
         // the value observed by a subsequent read.
