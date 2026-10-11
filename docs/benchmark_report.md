@@ -95,14 +95,14 @@ The benchmark initiator supports both per-transaction synchronization and a TLM 
 | Metric | Per-transaction baseline | Quantum keeper (100 ns) |
 |---|---:|---:|
 | Bus transactions | 2,006,000 | 2,006,000 |
-| Host runtime | 0.286907 s | 0.122872 s |
-| Throughput | 6,991,809 transactions/s | 16,325,973 transactions/s |
+| Host runtime | 0.296112 s | 0.136040 s |
+| Throughput | 6,774,456 transactions/s | 14,745,662 transactions/s |
 | Simulated time | 24,072 us | 24,072 us |
 | Synchronization count | 2,006,000 | 240,720 |
 | Checksum | 0xe0380 | 0xe0380 |
 | Result | PASS | PASS |
 
-On this workload, the quantum-keeper path delivered approximately **2.33x host-throughput** and reduced synchronization calls by approximately **8.34x**. CI explicitly verifies that transaction counts, simulated time and checksum match between modes, and that the quantum path performs fewer synchronizations.
+On this workload, the quantum-keeper path delivered approximately **2.18x host-throughput** and reduced synchronization calls by approximately **8.34x**. CI explicitly verifies that transaction counts, simulated time and checksum match between modes, and that the quantum path performs fewer synchronizations.
 
 This is a benchmark-specific result: the workload contains SRAM and periodic MMIO traffic but does not exercise timer/IRQ observation during the quantum window. It demonstrates safe batching for this workload, not universal equivalence for arbitrary asynchronous peripheral scenarios.
 
@@ -131,9 +131,9 @@ For comparable results, compare throughput, transaction counts, simulated time, 
 
 ## 10. Current Linux CI baseline (2026-10-11)
 
-Recorded by GitHub Actions run #230 on commit `9e8733da702395f8ba5c7abca10d9ae46b76bc1c`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
+Recorded by GitHub Actions run #248 on commit `10389fb06209ff18c95f168692eb326735ab18ed`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
 
-- Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 9V74 80-Core Processor (4 vCPUs assigned).
+- Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 7763 64-Core Processor (4 vCPUs assigned).
 - Compiler: GNU C++ 13.3.0.
 - SystemC: 2.3.4 (Ubuntu package).
 - Build: CMake Release.
@@ -148,24 +148,39 @@ Recorded by GitHub Actions run #230 on commit `9e8733da702395f8ba5c7abca10d9ae46
 | UART transactions | 2,000 |
 | GPIO transactions | 2,000 |
 | SPI transactions | 2,000 |
-| Host runtime | 0.279942 s |
-| Throughput | 7,165,761 transactions/s |
+| Host runtime | 0.297945 s |
+| Throughput | 6,732,789 transactions/s |
 | Simulated time | 24,072 us |
 | Synchronization count | 2,006,000 |
 | Checksum | 0xe0380 |
 | Result | PASS |
 
-A paired baseline run in the quantum comparison step measured 0.286907 s; small differences between baseline runs reflect runner load. Use the paired measurements in Section 7 for the temporal-decoupling comparison.
+The paired comparison below uses the same workflow run and runner for all three modes; separate baseline runs vary with runner load.
 
-## 11. Reproducible quantum-keeper comparison
+## 11. Reproducible quantum-keeper and DMI comparison
 
-The CI comparison command runs:
+The CI comparison runs all three modes on the same Release build:
 
     ./build/soc_bench 1000000
     ./build/soc_bench 1000000 --quantum-ns 100
+    ./build/soc_bench 1000000 --dmi --quantum-ns 100
 
-The comparison fails if either workload does not report PASS, or if bus transaction count, simulated time or checksum differs. It also fails unless the quantum keeper reduces synchronization count. The recorded pair passed all checks.
+| Metric | TLM baseline | TLM + 100 ns quantum | SRAM DMI + 100 ns quantum |
+|---|---:|---:|---:|
+| Host runtime | 0.296112 s | 0.136040 s | 0.032845 s |
+| Throughput | 6,774,456 ops/s | 14,745,662 ops/s | 61,075,264 ops/s |
+| Bus transactions | 2,006,000 | 2,006,000 | 6,000 |
+| DMI SRAM operations | 0 | 0 | 2,000,000 |
+| Total operations | 2,006,000 | 2,006,000 | 2,006,000 |
+| Simulated time | 24,072 us | 24,072 us | 20,072 us |
+| Synchronization count | 2,006,000 | 240,720 | 200,720 |
+| Checksum | 0xe0380 | 0xe0380 | 0xe0380 |
+| Result | PASS | PASS | PASS |
+
+The quantum TLM path is about **2.18x faster** than the per-transaction baseline and reduces synchronization count by about **8.34x**. The DMI+quantum path is about **4.14x faster** than quantum TLM transport for this SRAM-heavy workload. DMI reduces bus transactions because the 2,000,000 SRAM accesses bypass the interconnect; the 6,000 remaining transactions are MMIO. Its simulated time is 4 ms lower because DMI access uses the SRAM's 10 ns latency and bypasses the 2 ns interconnect traversal. The checksum and total operation count remain identical.
+
+The workflow fails if baseline and quantum modes disagree on bus transaction count, total operations, simulated time or checksum; if the quantum mode does not reduce synchronization count; or if DMI does not execute exactly 2,000,000 SRAM operations, preserve total operations/checksum, reduce bus transactions and simulated time, and improve throughput over quantum TLM. This is a benchmark-specific equivalence check, not proof that arbitrary asynchronous peripheral workloads can be quantum-decoupled without additional synchronization.
 
 ## 12. Conclusion
 
-The platform now reports measured baseline throughput, SRAM DMI benefit, trace overhead and a quantum-keeper experiment. It also verifies deterministic transaction counts, simulated time and checksum across baseline and temporal-decoupled benchmark modes.
+The platform reports a reproducible TLM baseline, SRAM DMI comparison, trace-overhead historical measurement and quantum-keeper experiment. CI verifies generated artifacts, unit/negative/integration tests, a million-iteration workload, deterministic repeated firmware runs, and matched checksum/transaction semantics across baseline, quantum and DMI benchmark modes.
