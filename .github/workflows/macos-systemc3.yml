@@ -35,7 +35,7 @@ jobs:
 
       - name: Configure and build with SystemC 3.x
         run: |
-          cmake -S . -B build -DSYSTEMC_ROOT="$(brew --prefix systemc)" -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DSYSTEMC_ROOT="$(brew --prefix systemc)" -DPython3_EXECUTABLE="$PWD/.venv/bin/python" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel 2
 
       - name: Run tests
