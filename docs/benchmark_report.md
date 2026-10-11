@@ -88,46 +88,56 @@ The exact values depend on the scenario, but timed-LT preserves target delay wai
 
 The timer is driven by SystemC simulated time, never by host wall-clock time.
 
-## 7. Temporal-decoupling decision
+## 7. Temporal-decoupling experiment
 
-The baseline does not use a quantum keeper.
+The benchmark initiator supports both per-transaction synchronization and a TLM quantum keeper with a 100 ns global quantum. GitHub Actions run #229 executed both modes in the same Release build on the same runner.
 
-The reason is deliberate: explicit LT synchronization is simple, deterministic and easy to verify for the assignment. A future temporal-decoupling experiment could batch local initiator time and synchronize at a chosen quantum.
+| Metric | Per-transaction baseline | Quantum keeper (100 ns) |
+|---|---:|---:|
+| Bus transactions | 2,006,000 | 2,006,000 |
+| Host runtime | 0.172798 s | 0.078142 s |
+| Throughput | 11,608,944 transactions/s | 25,671,359 transactions/s |
+| Simulated time | 24,072 us | 24,072 us |
+| Synchronization count | 2,006,000 | 240,720 |
+| Checksum | 0xe0380 | 0xe0380 |
+| Result | PASS | PASS |
 
-The current benchmark therefore represents a straightforward b_transport baseline rather than an aggressively optimized temporal-decoupled model.
+On this workload, the quantum-keeper path delivered approximately **2.21x host-throughput** and reduced synchronization calls by approximately **8.34x**. CI explicitly verifies that transaction counts, simulated time and checksum match between modes, and that the quantum path performs fewer synchronizations.
+
+This is a benchmark-specific result: the workload contains SRAM and periodic MMIO traffic but does not exercise timer/IRQ observation during the quantum window. It demonstrates safe batching for this workload, not universal equivalence for arbitrary asynchronous peripheral scenarios.
 
 ## 8. Bottleneck and optimization decision
 
-The main bottleneck is normal TLM transport plus SystemC simulation/scheduling overhead.
+The baseline bottleneck is the cost of repeated blocking transport and per-transaction synchronization. The measured quantum experiment shows that synchronization frequency is a meaningful optimization target, while the matching checksum and simulated time provide basic equivalence evidence.
 
-One optimization intentionally not made is aggressive temporal-decoupling batching. It could improve throughput, but it would add synchronization complexity and could make MMIO observation less immediate.
-
-DMI is the intentional optimization already enabled for SRAM and is particularly effective for repeated memory operations.
+An optimization deliberately not made is cycle-accurate, beat-level bus arbitration. The platform instead uses a documented fixed-latency serialization approximation; a detailed arbitration model would add complexity and false precision without a multi-master architecture workload to validate it. DMI remains the intentional fast path for SRAM-heavy accesses.
 
 ## 9. Reproduction
 
-Build:
+Build the Release configuration used by CI:
 
-    cmake -S . -B build
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
     cmake --build build -j
 
 Run:
 
     ./build/soc_bench 1000000
+    ./build/soc_bench 1000000 --quantum-ns 100
     ./build/soc_bench 5000 --trace
     ./build/tlm_demo
 
-For comparable results, compare throughput, transaction counts, simulated time and checksum. Host runtime varies with machine load.
+For comparable results, compare throughput, transaction counts, simulated time, synchronization count and checksum. Host runtime varies with machine load.
 
-## 10. CI verification benchmark (2026-10-11)
+## 10. Current Linux CI baseline (2026-10-11)
 
-A fresh Linux CI run executed the required million-iteration workload after the benchmark and all peripheral models were updated to consume generated integration metadata. The recorded run was GitHub Actions run 38136995039 (run #177) on commit 84465a0008888c314e14c4e6cb60729d22818240.
+Recorded by GitHub Actions run #229 on commit `93034eaf5a74520f7f57cbffde7bbc6a8885b158`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
 
-Environment: GitHub-hosted Ubuntu 24.04.5 runner; SystemC dependency installed from the Ubuntu package repository. The exact host CPU model and compiler version were not captured in the workflow log, so this result should not be treated as a controlled cross-machine comparison.
-
-Command:
-
-    ./build/soc_bench 1000000
+- Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 9V45 96-Core Processor (4 vCPUs assigned).
+- Compiler: GNU C++ 13.3.0.
+- SystemC: 2.3.4 (Ubuntu package).
+- Build: CMake Release.
+- Trace: OFF.
+- Command: `./build/soc_bench 1000000`.
 
 | Metric | CI result |
 |---|---:|
@@ -137,19 +147,24 @@ Command:
 | UART transactions | 2,000 |
 | GPIO transactions | 2,000 |
 | SPI transactions | 2,000 |
-| Host runtime | 0.314118 s |
-| Throughput | 6,386,139 transactions/s |
-| Simulated time | 20,060 us |
+| Host runtime | 0.176150 s |
+| Throughput | 11,388,033 transactions/s |
+| Simulated time | 24,072 us |
+| Synchronization count | 2,006,000 |
 | Checksum | 0xe0380 |
-| Trace | OFF |
 | Result | PASS |
 
-This run confirms the workload completed and produced the expected transaction counts, simulated time and checksum. Host runtime differs from the historical macOS result because the host and execution environment differ; the measurements are not directly comparable.
+A paired baseline run in the quantum comparison step measured 0.172798 s; small differences between baseline runs reflect runner load. Use the paired measurements in Section 7 for the temporal-decoupling comparison.
 
-The baseline deliberately does not use a quantum keeper. The measured CI figure is a baseline for the current per-transaction synchronization policy, not a measured speedup comparison against temporal decoupling. A quantitative quantum-keeper comparison remains future work; no speedup is claimed.
+## 11. Reproducible quantum-keeper comparison
 
-## 11. Conclusion
+The CI comparison command runs:
 
-The platform provides a measurable baseline with millions of mixed TLM transactions, per-target counters, DMI acceleration, optional trace instrumentation and two timing modes.
+    ./build/soc_bench 1000000
+    ./build/soc_bench 1000000 --quantum-ns 100
 
-The measurements identify normal TLM/SystemC transport as the main baseline bottleneck and justify DMI as the most useful existing fast path.
+The comparison fails if either workload does not report PASS, or if bus transaction count, simulated time or checksum differs. It also fails unless the quantum keeper reduces synchronization count. The recorded pair passed all checks.
+
+## 12. Conclusion
+
+The platform now reports measured baseline throughput, SRAM DMI benefit, trace overhead and a quantum-keeper experiment. It also verifies deterministic transaction counts, simulated time and checksum across baseline and temporal-decoupled benchmark modes.
