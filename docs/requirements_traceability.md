@@ -20,7 +20,7 @@ This matrix maps the original SystemC/TLM-2.0 assignment and Khushal's follow-up
 | IRQ pending/enable/claim/complete | `model/irq/irq_controller.h` | UART/GPIO/timer/SPI integration scenarios, including source clear before completion | Implemented reduced PLIC-like model. Priority is fixed by source order; programmable priority/threshold are not implemented. |
 | Deterministic firmware-like workload | `src/main.cpp` | ROM copy, UART banner, GPIO direct/masked, invalid access, UART/GPIO/timer/SPI IRQs and reset; both timing modes | Implemented; returns nonzero on scenario failure. |
 | Reset after simulation time advances and repeat-run determinism | `src/main.cpp`, all stateful models, `tests/generator_test.py` | Reset scenario verifies memory, peripheral registers and IRQ lines; relocated timed-LT output is compared byte-for-byte across repeated runs | Implemented and regression-tested. |
-| Performance measurement and mixed-MMIO workload ≥1,000,000 iterations | `benchmarks/soc_bench.cpp`, `docs/benchmark_report.md` | CI runs `./build/soc_bench 1000000`; checks PASS, transaction counts, simulated time and checksum in logs | Mixed workload, quantum-keeper comparison and quantum-TLM vs quantum-DMI comparison run in CI. Historical trace-overhead figures remain a separate host experiment. |
+| Performance measurement and mixed-MMIO workload ≥1,000,000 iterations | `benchmarks/soc_bench.cpp`, `docs/benchmark_report.md` | CI runs baseline, quantum-keeper and DMI+quantum million-operation modes; verifies operation counts/checksum/simulated-time consistency and records throughput | Implemented; trace overhead is also measured in CI on a 100,000-iteration on/off comparison. Host runtimes vary by runner. |
 | Trace/counters and target byte accounting | `model/interconnect/simple_interconnect.h`, benchmark `--trace` | Benchmark trace experiment and per-target counters | Implemented; tracing is disabled by default. |
 | Temporal decoupling / quantum keeper | `benchmarks/soc_bench.cpp --quantum-ns 100`, `.github/workflows/ci.yml`, `docs/benchmark_report.md` | CI compares baseline and quantum modes; requires identical bus transaction count, simulated time and checksum, plus fewer quantum synchronizations; measured throughput and synchronization counts recorded | PASS for the benchmark initiator path. The main firmware-like SoC initiator remains explicitly synchronized so asynchronous peripheral/IRQ observation is not silently delayed by a quantum window. |
 | Reproducible setup and attribution | `README.md`, `CMakeLists.txt`, `requirements.txt`, `LICENSE`, `THIRD_PARTY_NOTICES.md` | CI installs dependencies, checks generated artifacts, configures, builds, tests and runs benchmark | Implemented for the documented Ubuntu CI environment; tested SystemC version is stated in the README/design note. |
@@ -29,18 +29,19 @@ This matrix maps the original SystemC/TLM-2.0 assignment and Khushal's follow-up
 
 The CI workflow performs, in order:
 
-1. `python3 generator/generate.py --check`
-2. CMake configuration and build
-3. `ctest --test-dir build --output-on-failure`
-4. `./build/soc_bench 1000000`
+1. Report compiler, SystemC package, CMake and host CPU; configure a Release build.
+2. `python3 generator/generate.py --check`
+3. CMake configuration/build and `ctest --test-dir build --output-on-failure`.
+4. Run `./build/soc_bench 1000000`.
+5. Compare TLM baseline, `--quantum-ns 100`, and `--dmi --quantum-ns 100` for checksum, operation count, simulated time and synchronization/throughput behavior.
+6. Compare tracing off/on for 100,000 iterations, checking trace records, transaction count and checksum.
 
-The generator test additionally compiles the real SoC against mutated YAML (UART base moved to `0x50000000`, WDATA offset moved to `0x20`) and runs the firmware-like scenario in timed-LT and functional-fast modes, with a custom ROM image and configurable SRAM latency. It also compiles and runs the mixed benchmark against that relocated map.
+The generator test additionally compiles the real SoC against mutated YAML (UART base moved to `0x50000000`, WDATA offset moved to `0x20`) and runs the firmware-like scenario in timed-LT and functional-fast modes, with custom ROM and SRAM images, independent SRAM/ROM/peripheral/interconnect latency settings, and both timing modes. It also compiles and runs the mixed benchmark against that relocated map.
 
 ## Explicit fidelity limits
 
 - No full RISC-V instruction-set simulator or ELF execution.
 - No cycle-accurate CPU, programmable bus arbitration, beat-based bandwidth model, or approximately-timed four-phase transport; the interconnect uses fixed-latency serialization.
 - SPI and IRQ controller are reduced functional models.
-- New target classes still need handwritten socket/binding/dispatch integration.
+- New target classes still need handwritten socket/binding/dispatch integration; YAML does not auto-instantiate/bind a new C++ target.
 - Quantum keeper is implemented and measured in the benchmark initiator only; the firmware scenario uses explicit LT synchronization.
-- A new target is not auto-instantiated/bound from YAML; its C++ socket, binding and routing case must be added manually.
