@@ -784,6 +784,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
         sram_image.write_bytes(sram_bytes)
 
         simulated_seconds = {}
+        scenario_outputs = {}
         time_scale = {
             "fs": 1e-15,
             "ps": 1e-12,
@@ -842,6 +843,27 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 )
             simulated_seconds[timing] = (
                 float(time_match.group(1)) * time_scale[time_match.group(2)]
+            )
+            scenario_outputs[timing] = output
+
+        repeat_run = subprocess.run(
+            [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                "--interconnect-latency-ns", "5",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        repeat_output = repeat_run.stdout + repeat_run.stderr
+        if repeat_run.returncode != 0 or repeat_output != scenario_outputs["timed-lt"]:
+            raise SystemExit(
+                "FAIL: repeated timed-LT scenario output was not deterministic:\\n"
+                + repeat_output
             )
 
         if simulated_seconds["timed-lt"] <= simulated_seconds["functional-fast"]:
@@ -916,6 +938,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
     print("[PASS] configurable interconnect latency participates in annotated timing")
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
+    print("[PASS] repeated timed-LT scenario output is deterministic")
     print("[PASS] timing regression confirms timed-LT consumes annotated delays")
     print("[PASS] changing interconnect latency changes timed-LT simulated time")
     print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
