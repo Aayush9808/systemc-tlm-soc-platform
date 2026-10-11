@@ -1120,6 +1120,9 @@ private:
                 (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
                 0xFFFFFFFFu) ||
             !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::INTR_ENABLE_OFFSET),
+                0) ||
+            !write32(
                 (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
                 1)) {
             fail("timer prescaler/step setup failed");
