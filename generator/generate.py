@@ -749,7 +749,13 @@ def generate_device_docs(data):
 def generate_verification_artifact(data):
     device_name = data["device"]["name"]
     name = device_name.lower()
-    output = OUT_DIR / "docs" / f"{name}_verification.md"
+
+    output = (
+        OUT_DIR /
+        "docs" /
+        f"{name}_verification.md"
+    )
+
     output.parent.mkdir(parents=True, exist_ok=True)
 
     lines = [
@@ -762,20 +768,36 @@ def generate_verification_artifact(data):
     ]
 
     for reg in data["registers"]:
-        offset = numeric_value(reg["offset"], f"{device_name}.{reg['name']}.offset")
-        reset = numeric_value(reg.get("reset", 0), f"{device_name}.{reg['name']}.reset")
-        mask = numeric_value(reg.get("mask", 0xFFFFFFFF), f"{device_name}.{reg['name']}.mask")
+        offset = numeric_value(
+            reg["offset"],
+            f"{device_name}.{reg['name']}.offset"
+        )
+
+        reset = numeric_value(
+            reg.get("reset", 0),
+            f"{device_name}.{reg['name']}.reset"
+        )
+
+        mask = numeric_value(
+            reg.get("mask", 0xFFFFFFFF),
+            f"{device_name}.{reg['name']}.mask"
+        )
+
         lines.append(
-            f"- {reg['name']}: offset={hex_value(offset)}, access={reg['access']}, "
-            f"reset={hex_value(reset)}, mask={hex_value(mask)}"
+            f"- `{reg['name']}` "
+            f"offset=`{hex_value(offset)}` "
+            f"access=`{reg['access']}` "
+            f"reset=`{hex_value(reset)}` "
+            f"mask=`{hex_value(mask)}`"
         )
         for field in reg.get("fields", []):
             bit_offset = numeric_value(field["bit_offset"], f"{device_name}.{reg['name']}.{field['name']}.bit_offset")
             bit_width = numeric_value(field["bit_width"], f"{device_name}.{reg['name']}.{field['name']}.bit_width")
             field_mask = 0xFFFFFFFF if bit_width == 32 else ((1 << bit_width) - 1) << bit_offset
             lines.append(
-                f"  - Field {reg['name']}.{field['name']}: bit_offset={bit_offset}, "
-                f"bit_width={bit_width}, access={field['access']}, mask={hex_value(field_mask)}"
+                f"  - Field `{reg['name']}.{field['name']}`: "
+                f"bit_offset=`{bit_offset}`, bit_width=`{bit_width}`, "
+                f"access=`{field['access']}`, mask=`{hex_value(field_mask)}`"
             )
 
     lines.extend([
@@ -798,7 +820,7 @@ def generate_verification_artifact(data):
         "",
     ])
 
-    output.write_text("\n".join(lines))
+    output.write_text("\\n".join(lines))
     print(f"generated: {output}")
 
 
