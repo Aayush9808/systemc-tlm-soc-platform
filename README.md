@@ -86,7 +86,7 @@ If SystemC is installed outside the Homebrew default:
     ./build/soc_sim --scenario boot --timing timed-lt --sram-latency-ns 5
     ./build/tlm_demo
 
-The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size. The SRAM latency can be overridden in nanoseconds with `--sram-latency-ns` (default: 10 ns).
+The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size. The SRAM latency can be overridden in nanoseconds with `--sram-latency-ns` (default: 10 ns). The peripheral register-transaction latency can be overridden with `--peripheral-latency-ns` (default: 10 ns); this does not change the timer's counter tick semantics.
 
 The TLM policy test covers valid access, unaligned access, invalid length, invalid streaming width, byte enables, unsupported commands and out-of-bounds access.
 
