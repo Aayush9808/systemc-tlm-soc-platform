@@ -46,14 +46,17 @@ jobs:
         run: |
           ./build/soc_bench 1000000 > /tmp/soc-bench-baseline.log
           ./build/soc_bench 1000000 --quantum-ns 100 > /tmp/soc-bench-quantum.log
+          ./build/soc_bench 1000000 --dmi --quantum-ns 100 > /tmp/soc-bench-dmi.log
           cat /tmp/soc-bench-baseline.log
           cat /tmp/soc-bench-quantum.log
+          cat /tmp/soc-bench-dmi.log
           python3 - <<'PY'
           import re
           from pathlib import Path
 
           baseline = Path("/tmp/soc-bench-baseline.log").read_text()
           quantum = Path("/tmp/soc-bench-quantum.log").read_text()
+          dmi = Path("/tmp/soc-bench-dmi.log").read_text()
 
           def value(output, label):
               match = re.search(rf"^{re.escape(label)}:\s*(.+)$", output, re.MULTILINE)
@@ -61,18 +64,38 @@ jobs:
                   raise SystemExit(f"missing benchmark metric: {label}")
               return match.group(1).strip()
 
-          for output in (baseline, quantum):
+          for output in (baseline, quantum, dmi):
               if "Benchmark: PASS" not in output:
                   raise SystemExit("benchmark did not report PASS")
-          for label in ("Bus transactions", "Simulated time", "Checksum"):
+          for label in ("Bus transactions", "Simulated time", "Checksum", "Total operations"):
               if value(baseline, label) != value(quantum, label):
                   raise SystemExit(f"quantum changed {label}: "
                                    f"{value(baseline, label)} != {value(quantum, label)}")
+          for label in ("Checksum", "Total operations"):
+              if value(quantum, label) != value(dmi, label):
+                  raise SystemExit(f"DMI changed {label}: "
+                                   f"{value(quantum, label)} != {value(dmi, label)}")
+          if int(value(dmi, "DMI operations")) != 2000000:
+              raise SystemExit("DMI benchmark did not execute 2,000,000 SRAM operations")
+          if int(value(dmi, "Bus transactions")) >= int(value(quantum, "Bus transactions")):
+              raise SystemExit("DMI path did not bypass SRAM bus transactions")
           baseline_syncs = int(value(baseline, "Synchronization count"))
           quantum_syncs = int(value(quantum, "Synchronization count"))
           if quantum_syncs >= baseline_syncs:
               raise SystemExit("quantum keeper did not reduce synchronization count")
+          def throughput(output):
+              return float(value(output, "Throughput").split()[0])
+          quantum_throughput = throughput(quantum)
+          dmi_throughput = throughput(dmi)
+          if dmi_throughput <= quantum_throughput:
+              raise SystemExit("DMI did not improve throughput over quantum TLM transport")
+          if float(value(dmi, "Simulated time").split()[0]) >= float(value(quantum, "Simulated time").split()[0]):
+              raise SystemExit("DMI path did not remove interconnect traversal time")
           print("Temporal-decoupling comparison: PASS")
           print(f"Baseline synchronization count: {baseline_syncs}")
           print(f"Quantum synchronization count: {quantum_syncs}")
+          print("DMI/TLM comparison: PASS")
+          print(f"Quantum TLM throughput: {quantum_throughput:.0f} operations/s")
+          print(f"Quantum DMI throughput: {dmi_throughput:.0f} operations/s")
+          print(f"DMI speedup over quantum TLM: {dmi_throughput / quantum_throughput:.2f}x")
           PY
