@@ -64,18 +64,13 @@ Measured DMI speedup: approximately **253.6x**.
 
 This result is workload- and host-dependent. It demonstrates the expected benefit of bypassing repeated TLM transport for high-volume SRAM access.
 
-## 5. Historical trace overhead
+## 5. Trace overhead
 
-A 5,000-iteration run was measured with tracing disabled and enabled.
+Historical local macOS measurement: trace-enabled runtime was approximately 4.57x the trace-disabled runtime in a 5,000-iteration run.
 
-| Mode | Host runtime | Approx. throughput |
-|---|---:|---:|
-| Trace OFF | 0.003228 s | 3.106 M/s |
-| Trace ON | 0.014767 s | 0.679 M/s |
+Current CI measurement (run #255, same Release runner, 100,000 iterations): both modes processed 200,600 bus transactions with the same checksum; tracing emitted 200,600 records. Trace-off runtime was 0.030595 s and trace-on runtime was 0.209684 s (6.85x observed ratio).
 
-Trace-enabled runtime was approximately **4.57x** the trace-disabled runtime in this run.
-
-The overhead is expected because the trace path formats and prints transaction details for every routed access. Tracing is therefore disabled by default.
+The overhead is expected because the trace path formats and prints transaction details for every routed access. Tracing is disabled by default. Runtime ratios are host/load dependent.
 
 ## 6. Timing modes
 
@@ -90,7 +85,7 @@ The timer is driven by SystemC simulated time, never by host wall-clock time.
 
 ## 7. Temporal-decoupling experiment
 
-The benchmark initiator supports both per-transaction synchronization and a TLM quantum keeper with a 100 ns global quantum. GitHub Actions run #229 executed both modes in the same Release build on the same runner.
+The benchmark initiator supports both per-transaction synchronization and a TLM quantum keeper with a 100 ns global quantum. GitHub Actions run #255 executed all three modes in the same Release build on the same runner.
 
 | Metric | Per-transaction baseline | Quantum keeper (100 ns) |
 |---|---:|---:|
@@ -131,7 +126,7 @@ For comparable results, compare throughput, transaction counts, simulated time, 
 
 ## 10. Current Linux CI baseline (2026-10-11)
 
-Recorded by GitHub Actions run #248 on commit `10389fb06209ff18c95f168692eb326735ab18ed`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
+Recorded by GitHub Actions run #255 on commit `20f47c0d74397509babcd02852b8e50de364778b`. The workflow's subsequent runs also re-execute the benchmark and temporal-decoupling comparison after code changes.
 
 - Host: GitHub-hosted Ubuntu 24.04.5 VM, AMD EPYC 7763 64-Core Processor (4 vCPUs assigned).
 - Compiler: GNU C++ 13.3.0.
@@ -148,8 +143,8 @@ Recorded by GitHub Actions run #248 on commit `10389fb06209ff18c95f168692eb32673
 | UART transactions | 2,000 |
 | GPIO transactions | 2,000 |
 | SPI transactions | 2,000 |
-| Host runtime | 0.297945 s |
-| Throughput | 6,732,789 transactions/s |
+| Host runtime | 0.303990 s |
+| Throughput | 6,598,908 operations/s |
 | Simulated time | 24,072 us |
 | Synchronization count | 2,006,000 |
 | Checksum | 0xe0380 |
@@ -167,8 +162,8 @@ The CI comparison runs all three modes on the same Release build:
 
 | Metric | TLM baseline | TLM + 100 ns quantum | SRAM DMI + 100 ns quantum |
 |---|---:|---:|---:|
-| Host runtime | 0.296112 s | 0.136040 s | 0.032845 s |
-| Throughput | 6,774,456 ops/s | 14,745,662 ops/s | 61,075,264 ops/s |
+| Host runtime | 0.296457 s | 0.135665 s | 0.032193 s |
+| Throughput | 6,766,578 ops/s | 14,786,380 ops/s | 62,311,108 ops/s |
 | Bus transactions | 2,006,000 | 2,006,000 | 6,000 |
 | DMI SRAM operations | 0 | 0 | 2,000,000 |
 | Total operations | 2,006,000 | 2,006,000 | 2,006,000 |
@@ -177,7 +172,7 @@ The CI comparison runs all three modes on the same Release build:
 | Checksum | 0xe0380 | 0xe0380 | 0xe0380 |
 | Result | PASS | PASS | PASS |
 
-The quantum TLM path is about **2.18x faster** than the per-transaction baseline and reduces synchronization count by about **8.34x**. The DMI+quantum path is about **4.14x faster** than quantum TLM transport for this SRAM-heavy workload. DMI reduces bus transactions because the 2,000,000 SRAM accesses bypass the interconnect; the 6,000 remaining transactions are MMIO. Its simulated time is 4 ms lower because DMI access uses the SRAM's 10 ns latency and bypasses the 2 ns interconnect traversal. The checksum and total operation count remain identical.
+The quantum TLM path is about **2.18x faster** than the per-transaction baseline and reduces synchronization count by about **8.34x**. The DMI+quantum path is about **4.21x faster** than quantum TLM transport for this SRAM-heavy workload. DMI reduces bus transactions because the 2,000,000 SRAM accesses bypass the interconnect; the 6,000 remaining transactions are MMIO. Its simulated time is 4 ms lower because DMI access uses the SRAM's 10 ns latency and bypasses the 2 ns interconnect traversal. The checksum and total operation count remain identical.
 
 The workflow fails if baseline and quantum modes disagree on bus transaction count, total operations, simulated time or checksum; if the quantum mode does not reduce synchronization count; or if DMI does not execute exactly 2,000,000 SRAM operations, preserve total operations/checksum, reduce bus transactions and simulated time, and improve throughput over quantum TLM. This is a benchmark-specific equivalence check, not proof that arbitrary asynchronous peripheral workloads can be quantum-decoupled without additional synchronization.
 
