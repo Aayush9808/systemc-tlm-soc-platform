@@ -18,11 +18,13 @@ public:
     SimpleRom(
         sc_core::sc_module_name name,
         std::size_t size = 64 * 1024,
-        const std::string& image_path = std::string()
+        const std::string& image_path = std::string(),
+        sc_core::sc_time latency = sc_core::sc_time(10, sc_core::SC_NS)
     )
         : sc_core::sc_module(name),
           socket("socket"),
-          data(size, 0) {
+          data(size, 0),
+          latency_(latency) {
 
         load_firmware_image(image_path);
 
@@ -34,6 +36,7 @@ public:
 
 private:
     std::vector<std::uint8_t> data;
+    sc_core::sc_time latency_;
 
     void load_firmware_image(const std::string& image_path) {
         std::fill(data.begin(), data.end(), static_cast<std::uint8_t>(0));
@@ -125,7 +128,7 @@ private:
             bytes[i] = data[address + i];
         }
 
-        delay += sc_core::sc_time(10, sc_core::SC_NS);
+        delay += latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
