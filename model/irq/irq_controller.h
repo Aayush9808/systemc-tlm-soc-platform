@@ -152,9 +152,7 @@ private:
             return;
         }
 
-        const auto* register_metadata = generated::lookup_register(
-            generated::irq::REGISTERS,
-            generated::irq::REGISTER_COUNT,
+        const auto* register_metadata = generated::irq::find_register(
             static_cast<uint32_t>(address)
         );
 
@@ -164,9 +162,9 @@ private:
         }
 
         if ((trans.is_read() &&
-             !generated::register_read_allowed(*register_metadata)) ||
+             !generated::irq::allows_read(*register_metadata)) ||
             (trans.is_write() &&
-             !generated::register_write_allowed(*register_metadata))) {
+             !generated::irq::allows_write(*register_metadata))) {
             trans.set_response_status(tlm::TLM_GENERIC_ERROR_RESPONSE);
             return;
         }
