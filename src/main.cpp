@@ -416,15 +416,50 @@ private:
         return true;
     }
 
+    uint64_t find_unmapped_address() const {
+        // Start in a high region, then skip any generated range that covers
+        // the candidate. This keeps the negative test valid when YAML relocates
+        // a peripheral (including to the old hard-coded probe address).
+        uint64_t candidate = 0x80000000ULL;
+
+        for (unsigned int attempt = 0;
+             attempt <= generated::MEMORY_MAP_COUNT;
+             ++attempt) {
+            bool covered = false;
+
+            for (unsigned int i = 0;
+                 i < generated::MEMORY_MAP_COUNT;
+                 ++i) {
+                const auto& range = generated::MEMORY_MAP[i];
+                const uint64_t end = range.base + range.size;
+
+                if (candidate >= range.base && candidate < end) {
+                    candidate = end;
+                    covered = true;
+                    break;
+                }
+            }
+
+            if (!covered) {
+                return candidate;
+            }
+        }
+
+        // The validated map should always leave an unmapped address. Keep a
+        // deterministic invalid fallback if a future schema exhausts the map.
+        return UINT64_MAX;
+    }
+
     bool invalid_transaction_scenario() {
 
         std::cout
             << "\n=== INVALID TRANSACTION SCENARIO ===\n";
 
         uint32_t value = 0;
+        const uint64_t invalid_address = find_unmapped_address();
 
         bool result = read32(
-            0x50000000,
+            invalid_address,
             value
         );
 
@@ -435,7 +470,9 @@ private:
         }
 
         std::cout
-            << "Unmapped address rejected: PASS\n";
+            << "Unmapped address 0x"
+            << std::hex << invalid_address << std::dec
+            << " rejected: PASS\n";
 
         return true;
     }
