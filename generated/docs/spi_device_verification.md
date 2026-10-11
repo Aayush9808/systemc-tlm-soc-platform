@@ -10,7 +10,6 @@ Generated from the device schema.
 - `TX` offset=`0x0000000C` access=`WO` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `RX` offset=`0x00000010` access=`RO` reset=`0x00000000` mask=`0xFFFFFFFF`
 
-
 ## Generated test vectors
 
 | Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |
