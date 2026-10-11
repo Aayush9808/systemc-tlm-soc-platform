@@ -143,6 +143,7 @@ The CPU side is a scripted TLM initiator rather than a full RISC-V ISS. SPI and 
 
 - docs/design_note.md — architecture, timing, schema, IRQ, DMI, reset, verification and scaling decisions.
 - docs/benchmark_report.md — measured performance, DMI comparison and trace overhead.
+- docs/requirements_traceability.md — assignment and feedback requirements mapped to implementation and automated evidence.
 
 ## License and third-party attribution
 
