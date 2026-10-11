@@ -114,7 +114,7 @@ The generator also has a --check mode that generates into a temporary directory 
 
 ## 7. Peripheral and host behavior
 
-UART provides control/status/data/FIFO/interrupt registers, TX host-console output, RX injection and interrupt state.
+UART provides control/status/data/FIFO/interrupt registers, TX host-console output, RX injection/dequeue, FIFO reset side effects and interrupt state. Regression tests also reject invalid alignment, length, byte-enable and command requests.
 
 GPIO provides input/output/output-enable state, direct and masked writes, rising/falling edge configuration and interrupt state. Output changes can be observed through the model callback.
 
@@ -136,7 +136,7 @@ This keeps interrupt behavior event-driven instead of using host wall-clock poll
 
 SRAM grants DMI over its memory. The interconnect translates the DMI target-local range back into the system address map and clamps the advertised DMI window to the SRAM range declared by the generated memory map. This prevents a target's broader local DMI grant from exposing addresses outside the firmware-visible SRAM mapping.
 
-The standalone TLM/DMI demonstration verifies that a direct DMI write is visible through a later TLM read. The benchmark also compares repeated TLM accesses with direct DMI accesses.
+The standalone TLM/DMI demonstration and negative test verify consistency in both directions: DMI write→TLM read and TLM write→DMI read. The CI benchmark also compares repeated TLM accesses with direct DMI accesses.
 
 Because the SRAM mapping and backing storage are static for the lifetime of this simulation, runtime DMI invalidation is not required by the current model. If a target changes a granted DMI pointer, access permissions, or mapped range while the simulation is running, it must invalidate affected DMI regions with the standard TLM invalidation path so initiators do not continue using stale pointers. Any future remapping or dynamic permission changes must add an invalidation regression test.
 
@@ -144,7 +144,7 @@ Because the SRAM mapping and backing storage are static for the lifetime of this
 
 Reset is explicit and deterministic. The integrated scenario first advances simulated time, creates state in the devices, then calls reset on SRAM, UART, GPIO, timer, SPI and IRQ controller.
 
-After zero-time synchronization it checks that memory, peripheral state and interrupt signals are cleared. This also verifies that reset is exercised after simulation time is non-zero.
+Before reset, the regression explicitly verifies that the SPI interrupt source is active, its pending bit is set, and the CPU IRQ line is asserted. After zero-time synchronization it checks that memory, peripheral state and interrupt signals are cleared. This verifies reset under a pending interrupt after simulation time is non-zero.
 
 There is no global mutable singleton reset state.
 
@@ -172,7 +172,7 @@ The firmware-style scenario checks:
 - SPI exchange and IRQ;
 - reset and post-reset state.
 
-The same scenario runs in timed-LT and functional-fast modes.
+The same scenario runs in timed-LT and functional-fast modes. A relocated-schema regression repeats the timed-LT scenario and compares the full output byte-for-byte to check determinism.
 
 ### Determinism
 
@@ -184,7 +184,7 @@ The interconnect counts transactions and bytes per target. Tracing is optional a
 
 The mixed benchmark measures host runtime, simulated time, transaction throughput, per-target traffic and checksum.
 
-The separate DMI experiment measures the direct-memory path against TLM transport. The trace experiment measures the cost of detailed transaction output.
+CI measures the direct-memory path against TLM transport with matched operation count/checksum, compares trace-on/off consistency and records trace overhead.
 
 The measured baseline bottleneck is repeated TLM transport plus synchronization. The benchmark quantifies quantum batching as an optional optimization; the scripted firmware initiator remains explicitly synchronized for clear MMIO/IRQ observation. The chosen fidelity trade-off is a fixed-latency serialized interconnect rather than cycle-accurate arbitration.
 
