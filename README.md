@@ -112,7 +112,9 @@ The timer uses SystemC simulated time, not host wall-clock time.
 
 specs/soc.yaml is the memory-map source of truth. Device YAML files define register metadata.
 
-The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, overlapping memory ranges and uint64 address overflow.
+The generator validates duplicate names/offsets, alignment, access types, reset/mask ranges, field identifiers/access/ranges/overlaps, overlapping memory ranges and uint64 address overflow.
+
+Register fields (for example UART CTRL TX/RX) generate C++ bit offsets/widths/masks, firmware header macros, and human-readable verification summaries.
 
 Generated output is kept under generated/. Handwritten behavioral models remain under model/. Existing-target base/size relocation is covered through the real TLM interconnect; adding a new target still requires a C++ socket, binding and dispatch case.
 
