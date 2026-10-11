@@ -11,7 +11,7 @@ This matrix maps the original SystemC/TLM-2.0 assignment and Khushal's follow-up
 | Generated register offsets, reset values, masks and access policy | `specs/*.yaml`, `generated/include/`, `generated/sw/` | Generator mutation tests and generated-artifact check | Implemented. UART CTRL TX/RX fields demonstrate generated C++ and firmware field masks. |
 | Generated register dispatch is used by models | `generated/src/*_registers.cpp`; peripheral and IRQ models | Full build and relocated-map integration test | Implemented: models call per-device generated lookup/access functions; dispatch sources are linked into simulator, demo and benchmark. Handwritten code still implements stateful behavior. |
 | Schema rejects malformed ranges/registers/fields | `generator/generate.py` | `tests/generator_test.py`: overlap, overflow, zero-sized regions, duplicate names/offsets/fields, invalid access, alignment, reset/mask, field range/access/overlap checks | Implemented for the currently defined schema. |
-| TLM payload contract and deterministic errors | `model/interconnect/simple_interconnect.h`, target models | `tlm_policy_test`; UART negative width/alignment/byte-enable/command probes; ROM write rejection; first-unmapped-byte and unwired-target probes | Implemented for the documented 32-bit, aligned, 4-byte, no-byte-enable policy. |
+| TLM payload contract, deterministic errors and shared-bus serialization | `model/interconnect/simple_interconnect.h`, target models | `tlm_policy_test`; UART negative width/alignment/byte-enable/command probes; ROM write rejection; first-unmapped-byte/unwired-target probes; overlapping-arrival delay assertion | Implemented with a fixed-latency serialized bus approximation; not cycle-accurate arbitration or beat-based bandwidth. |
 | SRAM DMI range cannot exceed generated map | `model/interconnect/simple_interconnect.h` | Reduced-SRAM DMI probe in `tests/generator_test.py`; `tlm_demo_dmi` | Implemented and regression-tested. |
 | UART FIFO/status/interrupt/host console | `model/peripherals/uart.h`, `src/main.cpp` | Integration verifies RX-disabled injection is ignored, RX FIFO occupancy/dequeue, RO STATUS write rejection, WO WDATA read rejection, mask enforcement, invalid alignment/length/byte-enable/command policy, TX IRQ claim/source-clear/complete | Implemented reduced UART subset; RX is injected through the model stimulus API. |
 | GPIO input/output, masked writes and edge IRQ | `model/peripherals/gpio.h` | Firmware integration scenario and GPIO IRQ clear-before-complete regression | Implemented rising/falling edge subset; not a complete OpenTitan GPIO implementation. |
@@ -39,7 +39,7 @@ The generator test additionally compiles the real SoC against mutated YAML (UART
 ## Explicit fidelity limits
 
 - No full RISC-V instruction-set simulator or ELF execution.
-- No cycle-accurate CPU, bus arbitration, or approximately-timed four-phase transport.
+- No cycle-accurate CPU, programmable bus arbitration, beat-based bandwidth model, or approximately-timed four-phase transport; the interconnect uses fixed-latency serialization.
 - SPI and IRQ controller are reduced functional models.
 - New target classes still need handwritten socket/binding/dispatch integration.
 - No quantum keeper or measured quantum-vs-no-quantum comparison.
