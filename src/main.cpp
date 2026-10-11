@@ -615,6 +615,29 @@ private:
             fail("UART RX enable failed");
             return false;
         }
+        uart.inject_rx('D');
+        wait(sc_core::SC_ZERO_TIME);
+        if (!read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 1 ||
+            !write32(
+                (generated::UART0_BASE + generated::uart0::FIFO_CTRL_OFFSET),
+                2) ||
+            !read32(
+                (generated::UART0_BASE + generated::uart0::FIFO_STATUS_OFFSET),
+                uart_fifo_status) ||
+            (uart_fifo_status >> 16) != 0) {
+            fail("UART RX FIFO reset did not clear queued data");
+            return false;
+        }
+        if (!write32(
+                (generated::UART0_BASE + generated::uart0::INTR_STATE_OFFSET),
+                2)) {
+            fail("UART RX interrupt clear after FIFO reset failed");
+            return false;
+        }
+
         uart.inject_rx('R');
         wait(sc_core::SC_ZERO_TIME);
         if (!read32(
@@ -639,7 +662,7 @@ private:
             fail("UART RX FIFO occupancy did not clear after RDATA read");
             return false;
         }
-        std::cout << "UART RX injection, FIFO occupancy and dequeue: PASS\\n";
+        std::cout << "UART RX injection, FIFO reset, occupancy and dequeue: PASS\\n";
 
         if (!write32(
                 (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
@@ -1075,6 +1098,43 @@ private:
 
         std::cout
             << "Timer split-read coherency across 32-bit rollover: PASS\n";
+
+        // CFG0 high half is the prescaler and low half is the increment step.
+        // A 2x prescaler and step 3 should advance by six over 40 ns.
+        if (!write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CFG0_OFFSET),
+                (2u << 16) | 3u) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_UPPER_OFFSET),
+                0) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_LOWER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::COMPARE_UPPER_OFFSET),
+                0xFFFFFFFFu) ||
+            !write32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::CTRL_OFFSET),
+                1)) {
+            fail("timer prescaler/step setup failed");
+            return false;
+        }
+        wait(40, sc_core::SC_NS);
+        uint32_t stepped_value = 0;
+        if (!read32(
+                (generated::RV_TIMER_BASE + generated::rv_timer::TIMER_V_LOWER_OFFSET),
+                stepped_value) ||
+            stepped_value != 6) {
+            fail("timer prescaler/step semantics mismatch");
+            return false;
+        }
+        std::cout << "Timer prescaler=2, step=3 semantics: PASS\\n";
 
         return true;
     }
