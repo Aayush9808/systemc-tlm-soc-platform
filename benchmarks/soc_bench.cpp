@@ -45,8 +45,8 @@ private:
     uint64_t transaction_count = 1000000;
     bool trace_enabled = false;
 
-    SimpleMemory memory{"memory"};
-    SimpleRom rom{"rom"};
+    SimpleMemory memory{"memory", generated::SRAM_SIZE};
+    SimpleRom rom{"rom", generated::ROM_SIZE};
     Uart uart{"uart"};
     Gpio gpio{"gpio"};
     RvTimer timer{"timer"};
