@@ -22,10 +22,15 @@ public:
         RX      = generated::spi_device::RX_OFFSET
     };
 
-    SpiDevice(sc_core::sc_module_name name)
+    SpiDevice(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -46,6 +51,8 @@ public:
     }
 
 private:
+    sc_core::sc_time transaction_latency_;
+
     uint32_t control = generated::spi_device::CONTROL_RESET;
     uint32_t cfg = generated::spi_device::CFG_RESET;
 
@@ -137,10 +144,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
