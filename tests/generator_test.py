@@ -881,11 +881,11 @@ def check_models_use_generated_memory_ranges():
             raise SystemExit(
                 f"FAIL: {filename} does not include generated SoC memory-map metadata"
             )
-        if f"generated::find_memory_range(\\n            generated::TargetId::{target}" not in source:
+        if f"generated::find_memory_range(\n            generated::TargetId::{target}" not in source:
             raise SystemExit(
                 f"FAIL: {filename} does not derive its range from generated TargetId::{target}"
             )
-        if re.search(r"address\\s*>=\\s*0x[0-9A-Fa-f]+", source):
+        if re.search(r"address\s*>=\s*0x[0-9A-Fa-f]+", source):
             raise SystemExit(
                 f"FAIL: {filename} still hard-codes a target address-space size"
             )
