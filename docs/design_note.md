@@ -51,7 +51,7 @@ The source of truth is specs/soc.yaml.
 
 Targets implement b_transport with annotated SystemC delays.
 
-ROM is initialized from a deterministic built-in data table by default, or from an optional binary image passed with `--rom-image`. The image is loaded into the configured generated ROM size; missing, unreadable or oversized images fail initialization rather than silently truncating the firmware.
+ROM is initialized from a deterministic built-in data table by default, or from an optional binary image passed with `--rom-image`. The image is loaded into the configured generated ROM size; missing, unreadable or oversized images fail initialization rather than silently truncating the firmware. SRAM is zero-initialized by default or can load an optional binary image with `--sram-image`; oversized and unreadable images fail initialization.
 
 The baseline transaction contract is:
 
@@ -63,9 +63,9 @@ The baseline transaction contract is:
 - complete transaction must fit in the target range;
 - deterministic response status for invalid transactions.
 
-The negative TLM test covers valid access, unaligned address, invalid length, invalid streaming width, byte enable, unsupported command and out-of-bounds access.
+The negative TLM test covers valid access, unaligned address, invalid length, invalid streaming width, byte enable, unsupported command and out-of-bounds access. The generator regression also compiles a memory probe that verifies SRAM image contents and distinct read/write latency annotations.
 
-The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation. The SRAM target latency is configurable through `--sram-latency-ns`, and peripheral register-transaction latency through `--peripheral-latency-ns`; both default to 10 ns. These settings affect annotated transport delay, not the timer counter's tick configuration. The ROM image path is optionally supplied with `--rom-image`.
+The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation. The SRAM read and write target latencies are independently configurable through `--sram-read-latency-ns` and `--sram-write-latency-ns` (10 ns defaults); `--sram-latency-ns` sets both for compatibility. The interconnect adds a configurable 2 ns default traversal delay via `--interconnect-latency-ns`, and peripheral register-transaction latency is configurable through `--peripheral-latency-ns` (10 ns default). These settings affect annotated transport delay, not the timer counter's tick configuration. The ROM image path is optionally supplied with `--rom-image`.
 
 ## 5. Timing model
 
