@@ -104,6 +104,7 @@ public:
 private:
     bool trace_enabled_ = false;
     sc_core::sc_time interconnect_latency_;
+    sc_core::sc_time next_available_time_ = sc_core::SC_ZERO_TIME;
 
     uint64_t total_transactions_ = 0;
     uint64_t total_bytes_ = 0;
@@ -312,6 +313,19 @@ private:
             return;
         }
 
+        // Single shared bus: requests whose annotated arrival times overlap
+        // serialize on a fixed-latency bus slot. This is a deterministic
+        // contention approximation, not cycle-accurate arbitration.
+        const sc_core::sc_time arrival_time =
+            sc_core::sc_time_stamp() + delay;
+        const sc_core::sc_time bus_start =
+            arrival_time < next_available_time_
+                ? next_available_time_
+                : arrival_time;
+        if (bus_start > arrival_time) {
+            delay += bus_start - arrival_time;
+        }
+
         route_to_target(
             *range,
             trans,
@@ -320,6 +334,7 @@ private:
 
         // Annotate the mapped bus traversal independently of target latency.
         delay += interconnect_latency_;
+        next_available_time_ = bus_start + interconnect_latency_;
 
         record_transaction(
             *range,
