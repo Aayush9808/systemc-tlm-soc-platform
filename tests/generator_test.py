@@ -135,6 +135,60 @@ def expect_register_relocation():
             generate.OUT_DIR = original_out_dir
 
 
+def expect_register_addition():
+    with tempfile.TemporaryDirectory() as temp:
+        out_dir = Path(temp) / "generated"
+        uart_path = SOURCE_SPECS / "uart.yaml"
+        uart_data = load(uart_path)
+        uart_data["registers"].append({
+            "name": "TEST_REG",
+            "offset": "0x20",
+            "access": "RW",
+            "reset": "0x000000A5",
+            "mask": "0x000000FF",
+            "fields": [{
+                "name": "PAYLOAD",
+                "bit_offset": 4,
+                "bit_width": 3,
+                "access": "RW",
+            }],
+        })
+
+        original_spec_dir = generate.SPEC_DIR
+        original_out_dir = generate.OUT_DIR
+        generate.SPEC_DIR = Path(temp) / "specs"
+        shutil.copytree(SOURCE_SPECS, generate.SPEC_DIR)
+        save(generate.SPEC_DIR / "uart.yaml", uart_data)
+        generate.OUT_DIR = out_dir
+        try:
+            soc_data, device_data = generate.validate_all()
+            generate.generate_all(soc_data, device_data)
+        finally:
+            generate.SPEC_DIR = original_spec_dir
+            generate.OUT_DIR = original_out_dir
+
+        cpp_header = (out_dir / "include" / "uart0.h").read_text()
+        sw_header = (out_dir / "sw" / "uart0.h").read_text()
+        device_docs = (out_dir / "docs" / "uart0.md").read_text()
+        verification = (out_dir / "docs" / "uart0_verification.md").read_text()
+        checks = [
+            ("TEST_REG_OFFSET = 0x00000020", cpp_header),
+            ("TEST_REG_RESET = 0x000000A5", cpp_header),
+            ("TEST_REG_PAYLOAD_MASK = 0x00000070", cpp_header),
+            ("UART0_TEST_REG_OFFSET 0x00000020", sw_header),
+            ("UART0_TEST_REG_PAYLOAD_MASK 0x00000070", sw_header),
+            "| TEST_REG | 0x00000020 | RW | 0x000000A5 | 0x000000FF |", device_docs),
+            "| TEST_REG | 0x000000A5 | yes | yes | 0x000000FF |", verification),
+        ]
+        missing = [label for label, content in checks if label not in content]
+        if missing:
+            raise SystemExit(
+                "FAIL: adding a YAML register did not update all generated artifacts: "
+                + ", ".join(missing)
+            )
+    print("[PASS] adding a register updates generated C++, firmware header, docs and verification vectors")
+
+
 def expect_generated_runtime_behavior():
     """
     Compile and execute metadata regenerated from mutated YAML.
@@ -1042,9 +1096,26 @@ def main():
         "field exceeds register width",
         lambda spec_dir: invalid_field_range(spec_dir),
     )
+    expect_failure(
+        "overlapping register fields",
+        lambda spec_dir: overlapping_fields(spec_dir),
+    )
+    expect_failure(
+        "invalid field access",
+        lambda spec_dir: invalid_field_access(spec_dir),
+    )
+    expect_failure(
+        "duplicate field name",
+        lambda spec_dir: duplicate_field_name(spec_dir),
+    )
+    expect_failure(
+        "zero-sized memory region",
+        lambda spec_dir: zero_sized_memory_region(spec_dir),
+    )
 
     expect_address_relocation()
     expect_register_relocation()
+    expect_register_addition()
     expect_field_generation()
     expect_generated_runtime_behavior()
     expect_interconnect_address_relocation()
@@ -1146,6 +1217,39 @@ def invalid_field_range(spec_dir):
         "bit_width": 2,
         "access": "RW",
     }]
+    save(path, data)
+
+def overlapping_fields(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"] = [
+        {"name": "TX", "bit_offset": 0, "bit_width": 2, "access": "RW"},
+        {"name": "RX", "bit_offset": 1, "bit_width": 1, "access": "RW"},
+    ]
+    save(path, data)
+
+
+def invalid_field_access(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"][0]["access"] = "INVALID"
+    save(path, data)
+
+
+def duplicate_field_name(spec_dir):
+    path = spec_dir / "uart.yaml"
+    data = load(path)
+    ctrl = next(reg for reg in data["registers"] if reg["name"] == "CTRL")
+    ctrl["fields"][1]["name"] = ctrl["fields"][0]["name"]
+    save(path, data)
+
+
+def zero_sized_memory_region(spec_dir):
+    path = spec_dir / "soc.yaml"
+    data = load(path)
+    data["memory_map"][0]["size"] = 0
     save(path, data)
 
 
