@@ -23,9 +23,9 @@ Measured areas are:
 - SystemC: 3.0.2
 - Main workload: 1,000,000 iterations
 
-Host runtime is measured with std::chrono::steady_clock. Simulated time is measured with SystemC sc_time_stamp().
+Host runtime is measured with std::chrono::steady_clock. Simulated time is measured with SystemC sc_time_stamp(). Sections 3–6 retain historical local measurements from the earlier macOS build; the current Linux Release measurements and quantum comparison are recorded in Sections 7 and 10–11.
 
-## 3. Mixed SoC benchmark
+## 3. Historical local mixed SoC benchmark
 
 Command:
 
@@ -49,7 +49,7 @@ Recorded result:
 
 The workload performs one SRAM write and one SRAM read per iteration. Every 1,000 iterations it adds representative GPIO, UART and SPI traffic.
 
-## 4. DMI comparison
+## 4. Historical DMI comparison
 
 A separate 1,000,000-operation SRAM experiment compared ordinary TLM transport with direct DMI pointer access.
 
@@ -57,14 +57,14 @@ A separate 1,000,000-operation SRAM experiment compared ordinary TLM transport w
 |---|---:|---:|
 | Operations | 1,000,000 | 1,000,000 |
 | Host runtime | 0.113244 s | 0.000447 s |
-| Approx. throughput | 8.83 M/s | 2.239 B/s |
+| Approx. throughput | 8.83 million ops/s | 2.239 billion ops/s |
 | Simulated time | about 10.00001 ms | about 10.00001 ms |
 
 Measured DMI speedup: approximately **253.6x**.
 
 This result is workload- and host-dependent. It demonstrates the expected benefit of bypassing repeated TLM transport for high-volume SRAM access.
 
-## 5. Trace overhead
+## 5. Historical trace overhead
 
 A 5,000-iteration run was measured with tracing disabled and enabled.
 
