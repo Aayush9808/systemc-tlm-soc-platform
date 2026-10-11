@@ -487,6 +487,7 @@ int sc_main(int, char**) {
                 "-I", systemc_include,
                 "-I", str(temp_root),
                 str(probe),
+                *[str(path) for path in sorted((out_dir / "src").glob("*.cpp"))],
                 systemc_library,
                 "-o", str(binary),
             ],
@@ -799,25 +800,25 @@ def check_models_use_generated_register_offsets():
 
 
 def check_models_enforce_generated_register_policy():
-    model_files = [
-        "model/peripherals/uart.h",
-        "model/peripherals/gpio.h",
-        "model/peripherals/rv_timer.h",
-        "model/peripherals/spi_device.h",
-        "model/irq/irq_controller.h",
-    ]
-    required_helpers = [
-        "generated::lookup_register(",
-        "generated::register_read_allowed(",
-        "generated::register_write_allowed(",
-        "generated::apply_register_mask(",
-    ]
-    for filename in model_files:
+    model_files = {
+        "model/peripherals/uart.h": "uart0",
+        "model/peripherals/gpio.h": "gpio",
+        "model/peripherals/rv_timer.h": "rv_timer",
+        "model/peripherals/spi_device.h": "spi_device",
+        "model/irq/irq_controller.h": "irq",
+    }
+    for filename, namespace in model_files.items():
         source = (ROOT / filename).read_text()
+        required_helpers = [
+            f"generated::{namespace}::find_register(",
+            f"generated::{namespace}::allows_read(",
+            f"generated::{namespace}::allows_write(",
+            "generated::apply_register_mask(",
+        ]
         missing = [helper for helper in required_helpers if helper not in source]
         if missing:
             raise SystemExit(
-                f"FAIL: {filename} does not enforce generated register metadata: "
+                f"FAIL: {filename} does not consume generated register dispatch: "
                 + ", ".join(missing)
             )
 
