@@ -214,6 +214,7 @@ def expect_generated_runtime_behavior():
             if entry["name"] == "UART0"
         )
         uart_range["base"] = "0x50000000"
+        uart_range["size"] = "0x2000"
         save(soc_path, soc_data)
 
         uart_path = spec_dir / "uart.yaml"
@@ -244,6 +245,10 @@ int main() {
     using namespace generated;
 
     if (UART0_BASE != 0x50000000ULL) return 1;
+    const auto* generated_uart_range = find_memory_range(TargetId::UART0);
+    if (generated_uart_range == nullptr ||
+        generated_uart_range->base != 0x50000000ULL ||
+        generated_uart_range->size != 0x2000ULL) return 12;
 
     bool found_uart = false;
     for (unsigned int i = 0; i < MEMORY_MAP_COUNT; ++i) {
@@ -862,6 +867,31 @@ def check_firmware_uses_generated_bases():
     print("[PASS] firmware and benchmark use generated peripheral bases and register offsets")
 
 
+def check_models_use_generated_memory_ranges():
+    model_targets = {
+        "model/peripherals/uart.h": "UART0",
+        "model/peripherals/gpio.h": "GPIO",
+        "model/peripherals/rv_timer.h": "RV_TIMER",
+        "model/peripherals/spi_device.h": "SPI_DEVICE",
+        "model/irq/irq_controller.h": "IRQ",
+    }
+    for filename, target in model_targets.items():
+        source = (ROOT / filename).read_text()
+        if '#include "../../generated/include/soc_memory_map.h"' not in source:
+            raise SystemExit(
+                f"FAIL: {filename} does not include generated SoC memory-map metadata"
+            )
+        if f"generated::find_memory_range(\\n            generated::TargetId::{target}" not in source:
+            raise SystemExit(
+                f"FAIL: {filename} does not derive its range from generated TargetId::{target}"
+            )
+        if re.search(r"address\\s*>=\\s*0x[0-9A-Fa-f]+", source):
+            raise SystemExit(
+                f"FAIL: {filename} still hard-codes a target address-space size"
+            )
+    print("[PASS] peripheral and IRQ bounds consume generated SoC region sizes")
+
+
 def check_models_use_generated_register_offsets():
     models = {
         "uart.h": ("uart0", ["CTRL_OFFSET", "WDATA_OFFSET", "INTR_STATE_OFFSET"]),
@@ -1121,6 +1151,7 @@ def main():
     expect_interconnect_address_relocation()
     check_interconnect_dmi_respects_generated_range()
     check_firmware_uses_generated_bases()
+    check_models_use_generated_memory_ranges()
     check_models_use_generated_register_offsets()
     check_models_use_generated_reset_values()
     check_models_enforce_generated_register_policy()
