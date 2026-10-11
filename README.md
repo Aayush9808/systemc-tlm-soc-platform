@@ -16,7 +16,7 @@ A reusable virtual SoC platform built and CI-tested with SystemC 2.3.4 and 3.0.2
         ROM  SRAM UART GPIO
                   |    |
                 Timer SPI
-                  \\    /
+                  \    /
                 IRQ Controller
                      |
                    CPU IRQ
@@ -94,6 +94,13 @@ Then build:
     cmake --build build -j
 
 To intentionally regenerate artifacts after editing YAML, run `python3 generator/generate.py`, review the diff, and rerun `python3 generator/generate.py --check`.
+
+## Verified toolchains
+
+- GitHub Actions Linux CI: Ubuntu 24.04.5, GNU C++ 13.3.0, SystemC 2.3.4.
+- GitHub Actions macOS CI: Homebrew SystemC 3.x, Clang; builds, runs CTest, exercises both timing modes, and smoke-tests all three million-iteration benchmark modes.
+- Local development environment: macOS arm64, Apple Clang 21.0.0, SystemC 3.0.2.
+- C++ standard: C++17.
 
 ## Verification
 
