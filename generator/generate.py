@@ -815,8 +815,6 @@ def generate_verification_artifact(data):
         "- The memory map is generated as a data-driven table.",
         "- Register metadata is generated from the schema.",
         "- Software offsets and masks are generated.",
-        "- Field names, ranges, access types, and overlaps are validated.",
-        "- C++ and software field masks are generated from YAML.",
         "",
     ])
 
