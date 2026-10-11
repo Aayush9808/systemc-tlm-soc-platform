@@ -79,10 +79,25 @@ If SystemC is installed outside the Homebrew default:
 
 ## Build and generate
 
-    cmake -S . -B build
+First verify the committed generated artifacts:
+
+    python3 generator/generate.py --check
+
+Configure with the installed SystemC prefix:
+
+- Ubuntu / CI-style installation:
+
+      cmake -S . -B build -DSYSTEMC_ROOT=/usr -DCMAKE_BUILD_TYPE=Release
+
+- macOS with Homebrew:
+
+      cmake -S . -B build -DSYSTEMC_ROOT="$(brew --prefix systemc)" -DCMAKE_BUILD_TYPE=Release
+
+Then build:
+
     cmake --build build -j
-    python generator/generate.py
-    python generator/generate.py --check
+
+To intentionally regenerate artifacts after editing YAML, run `python3 generator/generate.py`, review the diff, and rerun `python3 generator/generate.py --check`.
 
 ## Verification
 
