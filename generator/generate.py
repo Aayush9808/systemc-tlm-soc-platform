@@ -818,7 +818,7 @@ def generate_verification_artifact(data):
         "",
     ])
 
-    output.write_text("\\n".join(lines))
+    output.write_text("\n".join(lines))
     print(f"generated: {output}")
 
 
