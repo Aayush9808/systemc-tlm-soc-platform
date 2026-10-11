@@ -31,3 +31,6 @@ jobs:
 
       - name: Run test suite
         run: ctest --test-dir build --output-on-failure
+
+      - name: Run million-iteration benchmark
+        run: ./build/soc_bench 1000000
