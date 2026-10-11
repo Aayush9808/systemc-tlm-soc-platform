@@ -55,4 +55,12 @@ constexpr MemoryRange MEMORY_MAP[] = {
 constexpr unsigned int MEMORY_MAP_COUNT =
     sizeof(MEMORY_MAP) / sizeof(MEMORY_MAP[0]);
 
+inline const MemoryRange* find_memory_range(TargetId target) {
+    for (unsigned int i = 0; i < MEMORY_MAP_COUNT; ++i) {
+        if (MEMORY_MAP[i].target == target)
+            return &MEMORY_MAP[i];
+    }
+    return nullptr;
+}
+
 }
