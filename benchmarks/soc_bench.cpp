@@ -367,7 +367,7 @@ private:
         std::cout
             << "Throughput: "
             << throughput
-            << " transactions/sec\n";
+            << " operations/sec\n";
 
         std::cout
             << "SRAM transactions: "
