@@ -65,7 +65,7 @@ The baseline transaction contract is:
 
 The negative TLM test covers valid access, unaligned address, invalid length, invalid streaming width, byte enable, unsupported command and out-of-bounds access.
 
-The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation. The SRAM target latency is configurable through `--sram-latency-ns`; the default is 10 ns. The ROM image path is optionally supplied with `--rom-image`.
+The targets do not call wait() inside b_transport. Instead, they add modeled delay to the delay argument and the initiator waits on that annotation. The SRAM target latency is configurable through `--sram-latency-ns`, and peripheral register-transaction latency through `--peripheral-latency-ns`; both default to 10 ns. These settings affect annotated transport delay, not the timer counter's tick configuration. The ROM image path is optionally supplied with `--rom-image`.
 
 ## 5. Timing model
 
