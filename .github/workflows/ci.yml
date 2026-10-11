@@ -25,7 +25,7 @@ jobs:
           g++ --version
           cmake --version
           dpkg-query -W libsystemc-dev
-          lscpu | grep -E 'Architecture|Model name|CPU\\(s\\)'
+          lscpu
 
       - name: Validate generated artifacts
         run: python3 generator/generate.py --check
@@ -41,3 +41,38 @@ jobs:
 
       - name: Run million-iteration benchmark
         run: ./build/soc_bench 1000000
+
+      - name: Compare baseline and temporal-decoupled benchmark
+        run: |
+          ./build/soc_bench 1000000 > /tmp/soc-bench-baseline.log
+          ./build/soc_bench 1000000 --quantum-ns 100 > /tmp/soc-bench-quantum.log
+          cat /tmp/soc-bench-baseline.log
+          cat /tmp/soc-bench-quantum.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          baseline = Path("/tmp/soc-bench-baseline.log").read_text()
+          quantum = Path("/tmp/soc-bench-quantum.log").read_text()
+
+          def value(output, label):
+              match = re.search(rf"^{re.escape(label)}:\\s*(.+)$", output, re.MULTILINE)
+              if not match:
+                  raise SystemExit(f"missing benchmark metric: {label}")
+              return match.group(1).strip()
+
+          for output in (baseline, quantum):
+              if "Benchmark: PASS" not in output:
+                  raise SystemExit("benchmark did not report PASS")
+          for label in ("Bus transactions", "Simulated time", "Checksum"):
+              if value(baseline, label) != value(quantum, label):
+                  raise SystemExit(f"quantum changed {label}: "
+                                   f"{value(baseline, label)} != {value(quantum, label)}")
+          baseline_syncs = int(value(baseline, "Synchronization count"))
+          quantum_syncs = int(value(quantum, "Synchronization count"))
+          if quantum_syncs >= baseline_syncs:
+              raise SystemExit("quantum keeper did not reduce synchronization count")
+          print("Temporal-decoupling comparison: PASS")
+          print(f"Baseline synchronization count: {baseline_syncs}")
+          print(f"Quantum synchronization count: {quantum_syncs}")
+          PY
