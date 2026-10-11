@@ -74,6 +74,7 @@ If SystemC is installed outside the Homebrew default:
 ## Verified toolchains
 
 - GitHub Actions Linux CI: Ubuntu 24.04.5, GNU C++ 13.3.0, SystemC 2.3.4.
+- GitHub Actions macOS CI: Homebrew SystemC 3.x, Clang; builds, runs CTest, exercises both timing modes, and smoke-tests all three million-iteration benchmark modes.
 - Local development environment: macOS arm64, Apple Clang 21.0.0, SystemC 3.0.2.
 - C++ standard: C++17.
 
@@ -115,6 +116,7 @@ To intentionally regenerate artifacts after editing YAML, run `python3 generator
 The integrated scenario checks ROM-to-SRAM copy, GPIO direct/masked access, invalid transactions, UART IRQ, GPIO edge IRQ, timer compare IRQ, SPI exchange/IRQ, reset and deterministic PASS/FAIL behavior. If `--rom-image` is omitted, the deterministic built-in ROM data table is used; when supplied, the binary image is loaded into ROM and rejected if it exceeds the generated ROM size. SRAM can be initialized from an optional binary image with `--sram-image`; oversized or unreadable images fail initialization. Read and write latency are independently configurable with `--sram-read-latency-ns` and `--sram-write-latency-ns` (both default to 10 ns). `--sram-latency-ns` remains a compatibility shortcut that sets both. ROM read latency is configurable with `--rom-latency-ns` (default: 10 ns). The interconnect contributes `--interconnect-latency-ns` (default: 2 ns). `--peripheral-latency-ns` sets the common default for UART/GPIO/timer/SPI/IRQ (10 ns), and each target can override it with `--uart-latency-ns`, `--gpio-latency-ns`, `--timer-latency-ns`, `--spi-latency-ns` or `--irq-latency-ns`. These annotated transport delays do not change the timer's counter tick semantics.
 
 The TLM policy test covers valid access, unaligned access, invalid length, invalid streaming width, byte enables, unsupported commands and out-of-bounds access.
+The image-initialization regression also verifies that missing or oversized ROM/SRAM binary images are rejected during initialization.
 
 ## Performance
 
