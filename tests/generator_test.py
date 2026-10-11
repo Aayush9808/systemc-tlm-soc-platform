@@ -809,10 +809,12 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 [
                     str(binary), "--scenario", "boot", "--timing", timing,
                     "--rom-image", str(rom_image),
+                    "--rom-latency-ns", "13",
                     "--sram-image", str(sram_image),
                     "--sram-read-latency-ns", "3",
                     "--sram-write-latency-ns", "5",
                     "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
                     "--interconnect-latency-ns", "5",
                 ],
                 capture_output=True,
@@ -861,10 +863,12 @@ def expect_full_firmware_scenario_with_relocated_uart():
             [
                 str(binary), "--scenario", "boot", "--timing", "timed-lt",
                 "--rom-image", str(rom_image),
-                "--sram-image", str(sram_image),
+                "--rom-latency-ns", "13",
+                    "--sram-image", str(sram_image),
                 "--sram-read-latency-ns", "3",
                 "--sram-write-latency-ns", "5",
                 "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
                 "--interconnect-latency-ns", "5",
             ],
             capture_output=True,
@@ -887,10 +891,12 @@ def expect_full_firmware_scenario_with_relocated_uart():
             [
                 str(binary), "--scenario", "boot", "--timing", "timed-lt",
                 "--rom-image", str(rom_image),
-                "--sram-image", str(sram_image),
+                "--rom-latency-ns", "13",
+                    "--sram-image", str(sram_image),
                 "--sram-read-latency-ns", "3",
                 "--sram-write-latency-ns", "5",
                 "--peripheral-latency-ns", "7",
+                    "--uart-latency-ns", "11",
                 "--interconnect-latency-ns", "0",
             ],
             capture_output=True,
@@ -911,6 +917,43 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 "FAIL: configured interconnect latency did not increase simulated time: "
                 + repr({"configured": simulated_seconds["timed-lt"], "zero": zero_seconds})
             )
+
+        for label, latency_option in (
+            ("UART", ["--uart-latency-ns", "0"]),
+            ("ROM", ["--rom-latency-ns", "0"]),
+        ):
+            control_args = [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--rom-latency-ns", "13",
+                "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                "--uart-latency-ns", "11",
+                "--interconnect-latency-ns", "5",
+            ]
+            if label == "UART":
+                control_args[control_args.index("--uart-latency-ns") + 1] = "0"
+            else:
+                control_args[control_args.index("--rom-latency-ns") + 1] = "0"
+            control = subprocess.run(control_args, capture_output=True, text=True)
+            control_output = control.stdout + control.stderr
+            control_match = re.search(
+                r"Simulation time:\s*([0-9]+(?:\.[0-9]+)?)\s*(fs|ps|ns|us|ms|s)",
+                control_output,
+            )
+            if control.returncode != 0 or control_match is None:
+                raise SystemExit(
+                    f"FAIL: {label} latency control run failed:\\n" + control_output
+                )
+            control_seconds = (
+                float(control_match.group(1)) * time_scale[control_match.group(2)]
+            )
+            if simulated_seconds["timed-lt"] <= control_seconds:
+                raise SystemExit(
+                    f"FAIL: configured {label} latency did not increase simulated time"
+                )
 
         benchmark_binary = temp_root / "soc_bench_relocated"
         benchmark_build = subprocess.run(
@@ -947,6 +990,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
     print("[PASS] binary ROM image loads and is copied correctly in both timing modes")
     print("[PASS] SRAM initialization image and distinct read/write latencies work in both timing modes")
     print("[PASS] configurable interconnect latency participates in annotated timing")
+    print("[PASS] ROM and per-target UART latency overrides affect simulated time")
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
     print("[PASS] repeated timed-LT scenario output is deterministic")
