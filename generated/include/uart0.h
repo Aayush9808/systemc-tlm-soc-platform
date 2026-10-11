@@ -11,6 +11,12 @@ constexpr uint32_t CTRL_OFFSET = 0x00000000;
 constexpr uint32_t CTRL_RESET = 0x00000000;
 constexpr uint32_t CTRL_MASK = 0x00000003;
 constexpr const char* CTRL_ACCESS = "RW";
+constexpr uint32_t CTRL_TX_BIT_OFFSET = 0;
+constexpr uint32_t CTRL_TX_BIT_WIDTH = 1;
+constexpr uint32_t CTRL_TX_MASK = 0x00000001;
+constexpr uint32_t CTRL_RX_BIT_OFFSET = 1;
+constexpr uint32_t CTRL_RX_BIT_WIDTH = 1;
+constexpr uint32_t CTRL_RX_MASK = 0x00000002;
 
 constexpr uint32_t STATUS_OFFSET = 0x00000004;
 constexpr uint32_t STATUS_RESET = 0x00000000;
