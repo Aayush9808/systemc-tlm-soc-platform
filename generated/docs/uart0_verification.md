@@ -15,6 +15,20 @@ Generated from the device schema.
 - `INTR_STATE` offset=`0x00000018` access=`W1C` reset=`0x00000000` mask=`0xFFFFFFFF`
 - `INTR_ENABLE` offset=`0x0000001C` access=`RW` reset=`0x00000000` mask=`0xFFFFFFFF`
 
+
+## Generated test vectors
+
+| Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |
+|---|---:|---|---|---:|
+| CTRL | 0x00000000 | yes | yes | 0x00000003 |
+| STATUS | 0x00000000 | yes | no | 0xFFFFFFFF |
+| RDATA | 0x00000000 | yes | no | 0xFFFFFFFF |
+| WDATA | 0x00000000 | no | yes | 0xFFFFFFFF |
+| FIFO_CTRL | 0x00000000 | yes | yes | 0xFFFFFFFF |
+| FIFO_STATUS | 0x00000000 | yes | no | 0xFFFFFFFF |
+| INTR_STATE | 0x00000000 | yes | yes | 0xFFFFFFFF |
+| INTR_ENABLE | 0x00000000 | yes | yes | 0xFFFFFFFF |
+
 ## Generator validation
 
 - Register names are unique.
