@@ -842,6 +842,35 @@ def expect_full_firmware_scenario_with_relocated_uart():
                 + repr(simulated_seconds)
             )
 
+        zero_interconnect = subprocess.run(
+            [
+                str(binary), "--scenario", "boot", "--timing", "timed-lt",
+                "--rom-image", str(rom_image),
+                "--sram-image", str(sram_image),
+                "--sram-read-latency-ns", "3",
+                "--sram-write-latency-ns", "5",
+                "--peripheral-latency-ns", "7",
+                "--interconnect-latency-ns", "0",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        zero_output = zero_interconnect.stdout + zero_interconnect.stderr
+        zero_match = re.search(
+            r"Simulation time:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(fs|ps|ns|us|ms|s)",
+            zero_output,
+        )
+        if zero_interconnect.returncode != 0 or zero_match is None:
+            raise SystemExit(
+                "FAIL: zero-interconnect-latency control run failed:\\n" + zero_output
+            )
+        zero_seconds = float(zero_match.group(1)) * time_scale[zero_match.group(2)]
+        if simulated_seconds["timed-lt"] <= zero_seconds:
+            raise SystemExit(
+                "FAIL: configured interconnect latency did not increase simulated time: "
+                + repr({"configured": simulated_seconds["timed-lt"], "zero": zero_seconds})
+            )
+
         benchmark_binary = temp_root / "soc_bench_relocated"
         benchmark_build = subprocess.run(
             [
@@ -880,6 +909,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
     print("[PASS] timing regression confirms timed-LT consumes annotated delays")
+    print("[PASS] changing interconnect latency changes timed-LT simulated time")
     print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
 
 
