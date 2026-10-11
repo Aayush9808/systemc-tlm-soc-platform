@@ -814,6 +814,25 @@ def generate_verification_artifact(data):
 
     lines.extend([
         "",
+        "## Generated test vectors",
+        "",
+        "| Register | Expected reset | Read allowed | Write allowed | Masked 0xFFFFFFFF |",
+        "|---|---:|---|---|---:|",
+    ])
+    for reg in data["registers"]:
+        reset = numeric_value(reg.get("reset", 0), f"{device_name}.{reg['name']}.reset")
+        mask = numeric_value(reg.get("mask", 0xFFFFFFFF), f"{device_name}.{reg['name']}.mask")
+        access = reg["access"]
+        read_allowed = "yes" if access in {"RO", "RW", "W1C"} else "no"
+        write_allowed = "yes" if access in {"RW", "WO", "W1C"} else "no"
+        masked_sample = 0xFFFFFFFF & mask
+        lines.append(
+            f"| {reg['name']} | {hex_value(reset)} | {read_allowed} | "
+            f"{write_allowed} | {hex_value(masked_sample)} |"
+        )
+
+    lines.extend([
+        "",
         "## Generator validation",
         "",
         "- Register names are unique.",
