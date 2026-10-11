@@ -38,8 +38,8 @@ public:
     TlmDemo(sc_core::sc_module_name name)
         : sc_core::sc_module(name),
           socket("socket"),
-          memory("memory"),
-          rom("rom"),
+          memory("memory", generated::SRAM_SIZE),
+          rom("rom", generated::ROM_SIZE),
           uart("uart"),
           gpio("gpio"),
           timer("timer"),
