@@ -10,6 +10,10 @@
 #include "../model/peripherals/rv_timer.h"
 #include "../model/peripherals/spi_device.h"
 #include "../model/irq/irq_controller.h"
+#include "../generated/include/soc_memory_map.h"
+#include "../generated/include/uart0.h"
+#include "../generated/include/gpio.h"
+#include "../generated/include/spi_device.h"
 
 #include <chrono>
 #include <cstdint>
@@ -136,7 +140,7 @@ private:
         for (uint64_t i = 0; i < transaction_count; ++i) {
 
             uint64_t memory_address =
-                0x10000000ULL +
+                generated::SRAM_BASE +
                 ((i % 1024) * 4);
 
             write32(
@@ -150,28 +154,28 @@ private:
             if ((i % 1000) == 0) {
 
                 write32(
-                    0x40010004,
+                    (generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET),
                     static_cast<uint32_t>(i)
                 );
 
                 checksum ^=
-                    read32(0x40010004);
+                    read32(generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET);
 
                 write32(
-                    0x40000000,
+                    (generated::UART0_BASE + generated::uart0::CTRL_OFFSET),
                     0x1
                 );
 
                 checksum ^=
-                    read32(0x40000004);
+                    read32(generated::UART0_BASE + generated::uart0::STATUS_OFFSET);
 
                 write32(
-                    0x40030004,
+                    (generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET),
                     0x1
                 );
 
                 checksum ^=
-                    read32(0x40030008);
+                    read32(generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET);
             }
         }
 
