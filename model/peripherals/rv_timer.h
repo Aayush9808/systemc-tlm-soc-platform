@@ -25,10 +25,15 @@ public:
         INTR_ENABLE   = generated::rv_timer::INTR_ENABLE_OFFSET
     };
 
-    RvTimer(sc_core::sc_module_name name)
+    RvTimer(
+        sc_core::sc_module_name name,
+        sc_core::sc_time transaction_latency =
+            sc_core::sc_time(10, sc_core::SC_NS)
+    )
         : sc_core::sc_module(name),
           socket("socket"),
-          irq("irq") {
+          irq("irq"),
+          transaction_latency_(transaction_latency) {
 
         socket.register_b_transport(
             this,
@@ -52,6 +57,8 @@ public:
     }
 
 private:
+    sc_core::sc_time transaction_latency_;
+
     uint32_t ctrl = generated::rv_timer::CTRL_RESET;
     uint32_t cfg0 = generated::rv_timer::CFG0_RESET;
 
@@ -154,10 +161,7 @@ private:
             return;
         }
 
-        delay += sc_core::sc_time(
-            10,
-            sc_core::SC_NS
-        );
+        delay += transaction_latency_;
 
         trans.set_response_status(
             tlm::TLM_OK_RESPONSE
