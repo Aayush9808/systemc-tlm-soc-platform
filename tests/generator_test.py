@@ -286,8 +286,8 @@ def expect_register_addition():
             ("TEST_REG_PAYLOAD_MASK = 0x00000070", cpp_header),
             ("UART0_TEST_REG_OFFSET 0x00000020", sw_header),
             ("UART0_TEST_REG_PAYLOAD_MASK 0x00000070", sw_header),
-            "| TEST_REG | 0x00000020 | RW | 0x000000A5 | 0x000000FF |", device_docs),
-            "| TEST_REG | 0x000000A5 | yes | yes | 0x000000FF |", verification),
+            ("| TEST_REG | 0x00000020 | RW | 0x000000A5 | 0x000000FF |", device_docs),
+            ("| TEST_REG | 0x000000A5 | yes | yes | 0x000000FF |", verification),
         ]
         missing = [label for label, content in checks if label not in content]
         if missing:
