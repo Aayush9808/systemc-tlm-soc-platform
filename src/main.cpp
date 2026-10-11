@@ -57,7 +57,7 @@ public:
           gpio_irq("gpio_irq"),
           uart_irq("uart_irq"),
           cpu_irq("cpu_irq"),
-          memory("memory"),
+          memory("memory", generated::SRAM_SIZE),
           rom("rom", generated::ROM_SIZE, rom_image),
           uart("uart"),
           gpio("gpio"),
