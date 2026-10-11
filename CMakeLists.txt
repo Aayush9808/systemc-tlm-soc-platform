@@ -85,6 +85,16 @@ set_tests_properties(generator_validation PROPERTIES
 )
 
 add_test(
+    NAME image_initialization_errors
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/image_error_test.py
+)
+
+set_tests_properties(image_initialization_errors PROPERTIES
+    ENVIRONMENT
+        "SYSTEMC_INCLUDE_DIR=${SYSTEMC_INCLUDE_DIR};SYSTEMC_LIBRARY=${SYSTEMC_LIBRARY}"
+)
+
+add_test(
     NAME tlm_demo_dmi
     COMMAND tlm_demo
 )
