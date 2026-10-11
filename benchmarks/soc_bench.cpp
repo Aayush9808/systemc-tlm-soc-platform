@@ -42,6 +42,10 @@ public:
         trace_enabled = enabled;
     }
 
+    void set_dmi_enabled(bool enabled) {
+        dmi_enabled = enabled;
+    }
+
     bool set_quantum_ns(uint64_t nanoseconds) {
         if (nanoseconds == 0) return false;
         quantum_enabled = true;
@@ -57,7 +61,10 @@ private:
     uint64_t transaction_count = 1000000;
     bool trace_enabled = false;
     bool quantum_enabled = false;
+    bool dmi_enabled = false;
     uint64_t quantum_ns = 0;
+    uint64_t dmi_operations = 0;
+    tlm::tlm_dmi sram_dmi;
     uint64_t synchronization_count = 0;
     tlm_utils::tlm_quantumkeeper quantum_keeper;
 
@@ -77,6 +84,41 @@ private:
     sc_core::sc_signal<bool> cpu_irq{"cpu_irq"};
 
     void write32(uint64_t address, uint32_t value) {
+        if (dmi_enabled &&
+            address >= generated::SRAM_BASE &&
+            address + 4 <= generated::SRAM_BASE + generated::SRAM_SIZE) {
+            if (!sram_dmi.is_write_allowed() ||
+                address < sram_dmi.get_start_address() ||
+                address + 3 > sram_dmi.get_end_address()) {
+                std::cerr << "DMI write outside granted SRAM range\\n";
+                sc_core::sc_stop();
+                return;
+            }
+            unsigned char* direct = sram_dmi.get_dmi_ptr() +
+                (address - sram_dmi.get_start_address());
+            direct[0] = static_cast<unsigned char>(value & 0xFFu);
+            direct[1] = static_cast<unsigned char>((value >> 8) & 0xFFu);
+            direct[2] = static_cast<unsigned char>((value >> 16) & 0xFFu);
+            direct[3] = static_cast<unsigned char>((value >> 24) & 0xFFu);
+            ++dmi_operations;
+
+            sc_core::sc_time delay = quantum_enabled
+                ? quantum_keeper.get_local_time()
+                : sc_core::SC_ZERO_TIME;
+            delay += sram_dmi.get_write_latency();
+            if (quantum_enabled) {
+                quantum_keeper.set(delay);
+                if (quantum_keeper.need_sync()) {
+                    quantum_keeper.sync();
+                    ++synchronization_count;
+                }
+            } else {
+                wait(delay);
+                ++synchronization_count;
+            }
+            return;
+        }
+
         unsigned char data[4] = {
             static_cast<unsigned char>(value & 0xff),
             static_cast<unsigned char>((value >> 8) & 0xff),
@@ -118,6 +160,42 @@ private:
     }
 
     uint32_t read32(uint64_t address) {
+        if (dmi_enabled &&
+            address >= generated::SRAM_BASE &&
+            address + 4 <= generated::SRAM_BASE + generated::SRAM_SIZE) {
+            if (!sram_dmi.is_read_allowed() ||
+                address < sram_dmi.get_start_address() ||
+                address + 3 > sram_dmi.get_end_address()) {
+                std::cerr << "DMI read outside granted SRAM range\\n";
+                sc_core::sc_stop();
+                return 0;
+            }
+            const unsigned char* direct = sram_dmi.get_dmi_ptr() +
+                (address - sram_dmi.get_start_address());
+            const uint32_t value =
+                static_cast<uint32_t>(direct[0]) |
+                (static_cast<uint32_t>(direct[1]) << 8) |
+                (static_cast<uint32_t>(direct[2]) << 16) |
+                (static_cast<uint32_t>(direct[3]) << 24);
+            ++dmi_operations;
+
+            sc_core::sc_time delay = quantum_enabled
+                ? quantum_keeper.get_local_time()
+                : sc_core::SC_ZERO_TIME;
+            delay += sram_dmi.get_read_latency();
+            if (quantum_enabled) {
+                quantum_keeper.set(delay);
+                if (quantum_keeper.need_sync()) {
+                    quantum_keeper.sync();
+                    ++synchronization_count;
+                }
+            } else {
+                wait(delay);
+                ++synchronization_count;
+            }
+            return value;
+        }
+
         unsigned char data[4] = {};
 
         tlm::tlm_generic_payload trans;
@@ -164,6 +242,28 @@ private:
         if (quantum_enabled) quantum_keeper.reset();
         bus.set_trace_enabled(trace_enabled);
 
+        if (dmi_enabled) {
+            unsigned char probe_data[4] = {};
+            tlm::tlm_generic_payload request;
+            request.set_command(tlm::TLM_READ_COMMAND);
+            request.set_address(generated::SRAM_BASE);
+            request.set_data_ptr(probe_data);
+            request.set_data_length(4);
+            request.set_streaming_width(4);
+            request.set_byte_enable_ptr(nullptr);
+            request.set_dmi_allowed(true);
+            if (!socket->get_direct_mem_ptr(request, sram_dmi) ||
+                !sram_dmi.is_read_allowed() ||
+                !sram_dmi.is_write_allowed() ||
+                sram_dmi.get_start_address() > generated::SRAM_BASE ||
+                sram_dmi.get_end_address() <
+                    generated::SRAM_BASE + generated::SRAM_SIZE - 1) {
+                std::cerr << "Could not acquire full-range SRAM DMI grant\\n";
+                sc_core::sc_stop();
+                return;
+            }
+        }
+
         std::cout << "\n=== SOC PERFORMANCE / TRACE BENCHMARK ===\n";
         std::cout << "Transactions: "
                   << transaction_count << "\n";
@@ -175,6 +275,7 @@ private:
                   << (quantum_enabled ? "ON" : "OFF");
         if (quantum_enabled) std::cout << " (" << quantum_ns << " ns)";
         std::cout << "\n";
+        std::cout << "DMI mode: " << (dmi_enabled ? "ON" : "OFF") << "\n";
 
         auto start = std::chrono::steady_clock::now();
 
@@ -235,8 +336,8 @@ private:
                 end - start
             ).count();
 
-        uint64_t total =
-            bus.total_transactions();
+        const uint64_t bus_transactions = bus.total_transactions();
+        const uint64_t total = bus_transactions + dmi_operations;
 
         double throughput =
             static_cast<double>(total) /
@@ -252,6 +353,14 @@ private:
 
         std::cout
             << "Bus transactions: "
+            << bus_transactions
+            << "\n";
+        std::cout
+            << "DMI operations: "
+            << dmi_operations
+            << "\n";
+        std::cout
+            << "Total operations: "
             << total
             << "\n";
 
@@ -335,6 +444,7 @@ int sc_main(int argc, char* argv[]) {
 
     uint64_t transactions = 1000000;
     bool trace = false;
+    bool dmi = false;
     uint64_t quantum_ns = 0;
 
     if (argc > 1) {
@@ -345,6 +455,8 @@ int sc_main(int argc, char* argv[]) {
         const std::string option = argv[i];
         if (option == "--trace") {
             trace = true;
+        } else if (option == "--dmi") {
+            dmi = true;
         } else if (option == "--quantum-ns" && i + 1 < argc) {
             quantum_ns = std::strtoull(argv[++i], nullptr, 10);
         } else {
@@ -357,6 +469,7 @@ int sc_main(int argc, char* argv[]) {
 
     bench.set_transaction_count(transactions);
     bench.set_trace_enabled(trace);
+    bench.set_dmi_enabled(dmi);
     if (quantum_ns != 0 && !bench.set_quantum_ns(quantum_ns)) {
         std::cerr << "Invalid quantum value\n";
         return 2;
