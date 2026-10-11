@@ -51,6 +51,115 @@ def save(path, data):
         yaml.safe_dump(data, file, sort_keys=False)
 
 
+def expect_sram_image_and_distinct_latency():
+    systemc_include = os.environ.get("SYSTEMC_INCLUDE_DIR")
+    systemc_library = os.environ.get("SYSTEMC_LIBRARY")
+    if not systemc_include or not systemc_library:
+        raise SystemExit("FAIL: SystemC paths are required for the SRAM image probe")
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp_root = Path(temp)
+        image_path = temp_root / "sram.bin"
+        image_path.write_bytes(bytes([0x78, 0x56, 0x34, 0x12]))
+        probe = temp_root / "sram_image_latency_probe.cpp"
+        probe.write_text(r'''#include <systemc>
+#include <tlm>
+#include <tlm_utils/simple_initiator_socket.h>
+#include "model/memory/simple_memory.h"
+
+struct Probe : sc_core::sc_module {
+    tlm_utils::simple_initiator_socket<Probe> socket;
+    bool passed = false;
+    SC_CTOR(Probe) : socket("socket") { SC_THREAD(run); }
+
+    bool access(tlm::tlm_command command, uint64_t address,
+                unsigned char* data, sc_core::sc_time expected_delay) {
+        tlm::tlm_generic_payload trans;
+        trans.set_command(command);
+        trans.set_address(address);
+        trans.set_data_ptr(data);
+        trans.set_data_length(4);
+        trans.set_streaming_width(4);
+        trans.set_byte_enable_ptr(nullptr);
+        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        socket->b_transport(trans, delay);
+        return trans.get_response_status() == tlm::TLM_OK_RESPONSE &&
+               delay == expected_delay;
+    }
+
+    void run() {
+        wait(sc_core::SC_ZERO_TIME);
+        unsigned char read_data[4] = {};
+        if (!access(tlm::TLM_READ_COMMAND, 0, read_data,
+                    sc_core::sc_time(3, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        if (read_data[0] != 0x78 || read_data[1] != 0x56 ||
+            read_data[2] != 0x34 || read_data[3] != 0x12) {
+            sc_core::sc_stop(); return;
+        }
+        unsigned char write_data[4] = {0xEF, 0xCD, 0xAB, 0x89};
+        if (!access(tlm::TLM_WRITE_COMMAND, 4, write_data,
+                    sc_core::sc_time(7, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        unsigned char verify_data[4] = {};
+        if (!access(tlm::TLM_READ_COMMAND, 4, verify_data,
+                    sc_core::sc_time(3, sc_core::SC_NS))) {
+            sc_core::sc_stop(); return;
+        }
+        passed = verify_data[0] == 0xEF && verify_data[1] == 0xCD &&
+                 verify_data[2] == 0xAB && verify_data[3] == 0x89;
+        sc_core::sc_stop();
+    }
+};
+
+int sc_main(int argc, char* argv[]) {
+    if (argc != 2) return 2;
+    SimpleMemory memory(
+        "memory", 1024,
+        sc_core::sc_time(3, sc_core::SC_NS),
+        sc_core::sc_time(7, sc_core::SC_NS),
+        argv[1]
+    );
+    Probe probe("probe");
+    probe.socket.bind(memory.socket);
+    sc_core::sc_start();
+    return probe.passed ? 0 : 1;
+}
+''')
+        binary = temp_root / "sram_image_latency_probe"
+        build = subprocess.run(
+            [
+                shutil.which("c++") or shutil.which("g++") or "c++",
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(ROOT),
+                str(probe),
+                systemc_library,
+                "-o", str(binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if build.returncode != 0:
+            raise SystemExit(
+                "FAIL: SRAM image/latency probe did not compile:\\n"
+                + build.stdout + build.stderr
+            )
+        run = subprocess.run(
+            [str(binary), str(image_path)],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise SystemExit(
+                "FAIL: SRAM image/latency probe failed:\\n"
+                + run.stdout + run.stderr
+            )
+    print("[PASS] SRAM image contents and separate read/write latencies verified at runtime")
+
+
 def expect_address_relocation():
     with tempfile.TemporaryDirectory() as temp:
         temp_root = Path(temp)
@@ -1077,6 +1186,8 @@ def expect_field_generation():
 
 
 def main():
+    expect_sram_image_and_distinct_latency()
+
     expect_failure(
         "overlapping memory ranges",
         lambda spec_dir: overlap(spec_dir),
