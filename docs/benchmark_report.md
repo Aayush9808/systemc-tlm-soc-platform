@@ -121,7 +121,7 @@ For comparable results, compare throughput, transaction counts, simulated time a
 
 ## 10. CI verification benchmark (2026-10-11)
 
-A fresh Linux CI run executed the required million-iteration workload after the benchmark was updated to consume generated memory-map and register constants.
+A fresh Linux CI run executed the required million-iteration workload after the benchmark and all peripheral models were updated to consume generated integration metadata. The recorded run was GitHub Actions run 38136575078 on commit fa288cc8deb3035ebe43d6ea1f8e89cc0fb1bbbf.
 
 Environment: GitHub-hosted Ubuntu 24.04.5 runner; SystemC dependency installed from the Ubuntu package repository. The exact host CPU model and compiler version were not captured in the workflow log, so this result should not be treated as a controlled cross-machine comparison.
 
@@ -137,8 +137,8 @@ Command:
 | UART transactions | 2,000 |
 | GPIO transactions | 2,000 |
 | SPI transactions | 2,000 |
-| Host runtime | 0.474166 s |
-| Throughput | 4,230,588 transactions/s |
+| Host runtime | 0.615079 s |
+| Throughput | 3,261,369 transactions/s |
 | Simulated time | 20,060 us |
 | Checksum | 0xe0380 |
 | Trace | OFF |
