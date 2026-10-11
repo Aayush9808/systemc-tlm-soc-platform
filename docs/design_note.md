@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This project implements a reusable virtual platform for a small firmware-visible RISC-V-style SoC using SystemC 3.0.2 and TLM-2.0.
+This project implements a reusable virtual platform for a small firmware-visible RISC-V-style SoC using SystemC/TLM-2.0. The local setup uses SystemC 3.0.2; CI also verifies SystemC 2.3.4 with GNU C++ 13.3.0.
 
 The baseline uses a scripted TLM initiator instead of a full RISC-V ISS so the assignment remains focused on platform modeling, register behavior, routing, timing, interrupts, generation, verification and performance.
 
@@ -81,7 +81,7 @@ The same architectural transactions and checks are executed, but the scenario av
 
 The timer is independent of host wall-clock time. Its counter is derived from sc_time_stamp(), prescaler and step configuration. Compare interrupts are scheduled with SystemC events.
 
-A temporal-decoupling/quantum optimization is intentionally not part of the baseline. Explicit synchronization keeps the model simple and deterministic. In TLM-2.0, a quantum keeper tracks local simulated time while an initiator performs several transactions without synchronizing on every call; it synchronizes when its local time reaches the configured global quantum. That can reduce kernel scheduling overhead, but it changes when other processes observe transactions and therefore needs explicit timing/regression tests. The current scripted initiator instead waits on each `b_transport` delay annotation in timed-LT mode. Functional-fast mode skips annotated delay waits by design; it is a functional comparison mode, not a timing-equivalent optimization.
+A quantum keeper is not used by the firmware-like SoC initiator, which waits on each `b_transport` annotation in timed-LT mode. The benchmark has a separate `--quantum-ns 100` mode using `tlm_utils::tlm_quantumkeeper`; CI compares it with the baseline and requires identical transaction counts, simulated time and checksum. In the recorded 1M-iteration experiment, the quantum path reduced synchronization calls from 2,006,000 to 240,720 and improved throughput by about 2.21x. This result is specific to the benchmark workload, which does not observe asynchronous timer/IRQ state during the quantum window. Functional-fast remains a functional comparison mode, not a timing-equivalent optimization.
 
 ## 6. Schema-driven generation
 
@@ -186,7 +186,7 @@ The mixed benchmark measures host runtime, simulated time, transaction throughpu
 
 The separate DMI experiment measures the direct-memory path against TLM transport. The trace experiment measures the cost of detailed transaction output.
 
-The main baseline bottleneck is normal TLM/SystemC transport and scheduling. A possible future optimization is temporal-decoupling/quantum batching, but it is intentionally not enabled because explicit LT synchronization is easier to verify.
+The measured baseline bottleneck is repeated TLM transport plus synchronization. The benchmark quantifies quantum batching as an optional optimization; the scripted firmware initiator remains explicitly synchronized for clear MMIO/IRQ observation. The chosen fidelity trade-off is a fixed-latency serialized interconnect rather than cycle-accurate arbitration.
 
 ## 13. Scaling and future extensions
 
@@ -200,7 +200,7 @@ Device-tree/SVD generation, checkpointing, visualization and differential testin
 
 This is a virtual platform, not a cycle-accurate implementation.
 
-The CPU is scripted rather than a full ISS. SPI and the IRQ controller are reduced functional models. Target timing is loosely timed rather than a detailed pipeline, arbitration or NoC timing model.
+The CPU is scripted rather than a full ISS. SPI and the IRQ controller are reduced functional models. Target timing is loosely timed; the interconnect uses fixed-latency serialization rather than programmable arbitration, beat-level bandwidth or a NoC timing model.
 
 These trade-offs are deliberate: they preserve the required TLM architecture, firmware-visible behavior, deterministic testing, generation flow and measurable performance without adding unnecessary implementation risk.
 
