@@ -1,6 +1,7 @@
 #include <systemc>
 #include <tlm>
 #include <tlm_utils/simple_initiator_socket.h>
+#include <tlm_utils/tlm_quantumkeeper.h>
 
 #include "../model/interconnect/simple_interconnect.h"
 #include "../model/memory/simple_memory.h"
@@ -41,9 +42,24 @@ public:
         trace_enabled = enabled;
     }
 
+    bool set_quantum_ns(uint64_t nanoseconds) {
+        if (nanoseconds == 0) return false;
+        quantum_enabled = true;
+        quantum_ns = nanoseconds;
+        tlm_utils::tlm_quantumkeeper::set_global_quantum(
+            sc_core::sc_time(static_cast<double>(nanoseconds), sc_core::SC_NS)
+        );
+        quantum_keeper.reset();
+        return true;
+    }
+
 private:
     uint64_t transaction_count = 1000000;
     bool trace_enabled = false;
+    bool quantum_enabled = false;
+    uint64_t quantum_ns = 0;
+    uint64_t synchronization_count = 0;
+    tlm_utils::tlm_quantumkeeper quantum_keeper;
 
     SimpleMemory memory{"memory", generated::SRAM_SIZE};
     SimpleRom rom{"rom", generated::ROM_SIZE};
@@ -69,7 +85,9 @@ private:
         };
 
         tlm::tlm_generic_payload trans;
-        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        sc_core::sc_time delay = quantum_enabled
+            ? quantum_keeper.get_local_time()
+            : sc_core::SC_ZERO_TIME;
 
         trans.set_command(tlm::TLM_WRITE_COMMAND);
         trans.set_address(address);
@@ -87,14 +105,25 @@ private:
             return;
         }
 
-        wait(delay);
+        if (quantum_enabled) {
+            quantum_keeper.set(delay);
+            if (quantum_keeper.need_sync()) {
+                quantum_keeper.sync();
+                ++synchronization_count;
+            }
+        } else {
+            wait(delay);
+            ++synchronization_count;
+        }
     }
 
     uint32_t read32(uint64_t address) {
         unsigned char data[4] = {};
 
         tlm::tlm_generic_payload trans;
-        sc_core::sc_time delay = sc_core::SC_ZERO_TIME;
+        sc_core::sc_time delay = quantum_enabled
+            ? quantum_keeper.get_local_time()
+            : sc_core::SC_ZERO_TIME;
 
         trans.set_command(tlm::TLM_READ_COMMAND);
         trans.set_address(address);
@@ -112,7 +141,16 @@ private:
             return 0;
         }
 
-        wait(delay);
+        if (quantum_enabled) {
+            quantum_keeper.set(delay);
+            if (quantum_keeper.need_sync()) {
+                quantum_keeper.sync();
+                ++synchronization_count;
+            }
+        } else {
+            wait(delay);
+            ++synchronization_count;
+        }
 
         return static_cast<uint32_t>(data[0]) |
                (static_cast<uint32_t>(data[1]) << 8) |
@@ -123,6 +161,7 @@ private:
     void run() {
         wait(sc_core::SC_ZERO_TIME);
 
+        if (quantum_enabled) quantum_keeper.reset();
         bus.set_trace_enabled(trace_enabled);
 
         std::cout << "\n=== SOC PERFORMANCE / TRACE BENCHMARK ===\n";
@@ -132,6 +171,10 @@ private:
         std::cout << "Trace: "
                   << (trace_enabled ? "ON" : "OFF")
                   << "\n";
+        std::cout << "Quantum keeper: "
+                  << (quantum_enabled ? "ON" : "OFF");
+        if (quantum_enabled) std::cout << " (" << quantum_ns << " ns)";
+        std::cout << "\n";
 
         auto start = std::chrono::steady_clock::now();
 
@@ -177,6 +220,12 @@ private:
                 checksum ^=
                     read32(generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET);
             }
+        }
+
+        if (quantum_enabled &&
+            quantum_keeper.get_local_time() != sc_core::SC_ZERO_TIME) {
+            quantum_keeper.sync();
+            ++synchronization_count;
         }
 
         auto end = std::chrono::steady_clock::now();
@@ -239,6 +288,10 @@ private:
             << "Simulated time: "
             << sc_core::sc_time_stamp()
             << "\n";
+        std::cout
+            << "Synchronization count: "
+            << synchronization_count
+            << "\n";
 
         std::cout
             << "Checksum: 0x"
@@ -282,17 +335,21 @@ int sc_main(int argc, char* argv[]) {
 
     uint64_t transactions = 1000000;
     bool trace = false;
+    uint64_t quantum_ns = 0;
 
     if (argc > 1) {
-        transactions =
-            std::strtoull(argv[1], nullptr, 10);
+        transactions = std::strtoull(argv[1], nullptr, 10);
     }
 
-    if (argc > 2) {
-        std::string mode = argv[2];
-
-        if (mode == "--trace") {
+    for (int i = 2; i < argc; ++i) {
+        const std::string option = argv[i];
+        if (option == "--trace") {
             trace = true;
+        } else if (option == "--quantum-ns" && i + 1 < argc) {
+            quantum_ns = std::strtoull(argv[++i], nullptr, 10);
+        } else {
+            std::cerr << "Unknown benchmark option: " << option << "\n";
+            return 2;
         }
     }
 
@@ -300,6 +357,10 @@ int sc_main(int argc, char* argv[]) {
 
     bench.set_transaction_count(transactions);
     bench.set_trace_enabled(trace);
+    if (quantum_ns != 0 && !bench.set_quantum_ns(quantum_ns)) {
+        std::cerr << "Invalid quantum value\n";
+        return 2;
+    }
     bench.bind_soc();
 
     sc_core::sc_start();
