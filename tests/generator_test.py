@@ -542,6 +542,7 @@ def expect_full_firmware_scenario_with_relocated_uart():
         shutil.copytree(SOURCE_SPECS, spec_dir)
         shutil.copytree(ROOT / "model", temp_root / "model")
         shutil.copytree(ROOT / "src", temp_root / "src")
+        shutil.copytree(ROOT / "benchmarks", temp_root / "benchmarks")
 
         soc_path = spec_dir / "soc.yaml"
         soc_data = load(soc_path)
@@ -618,8 +619,41 @@ def expect_full_firmware_scenario_with_relocated_uart():
                     + output
                 )
 
+        benchmark_binary = temp_root / "soc_bench_relocated"
+        benchmark_build = subprocess.run(
+            [
+                compiler,
+                "-std=c++17",
+                "-I", systemc_include,
+                "-I", str(out_dir / "include"),
+                str(temp_root / "benchmarks" / "soc_bench.cpp"),
+                *[str(path) for path in generated_sources],
+                systemc_library,
+                "-o", str(benchmark_binary),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if benchmark_build.returncode != 0:
+            raise SystemExit(
+                "FAIL: benchmark did not compile with relocated YAML:\\n"
+                + benchmark_build.stdout + benchmark_build.stderr
+            )
+        benchmark_run = subprocess.run(
+            [str(benchmark_binary), "1000"],
+            capture_output=True,
+            text=True,
+        )
+        benchmark_output = benchmark_run.stdout + benchmark_run.stderr
+        if benchmark_run.returncode != 0 or "Benchmark: PASS" not in benchmark_output:
+            raise SystemExit(
+                "FAIL: benchmark did not pass with relocated UART map:\\n"
+                + benchmark_output
+            )
+
     print("[PASS] full firmware scenario survives UART base and WDATA offset relocation")
     print("[PASS] relocated full firmware scenario passes timed-LT and functional-fast")
+    print("[PASS] mixed-MMIO benchmark runs against the relocated generated map")
 
 
 def check_interconnect_dmi_respects_generated_range():
@@ -703,7 +737,30 @@ def check_firmware_uses_generated_bases():
             raise SystemExit(
                 f"FAIL: firmware still hardcodes a {base} register offset"
             )
-    print("[PASS] firmware uses generated peripheral bases and register offsets")
+    benchmark_source = (ROOT / "benchmarks" / "soc_bench.cpp").read_text()
+    benchmark_symbols = [
+        "generated::SRAM_BASE",
+        "generated::GPIO_BASE + generated::gpio::DIRECT_OUT_OFFSET",
+        "generated::UART0_BASE + generated::uart0::CTRL_OFFSET",
+        "generated::UART0_BASE + generated::uart0::STATUS_OFFSET",
+        "generated::SPI_DEVICE_BASE + generated::spi_device::CFG_OFFSET",
+        "generated::SPI_DEVICE_BASE + generated::spi_device::STATUS_OFFSET",
+    ]
+    missing_benchmark_symbols = [
+        symbol for symbol in benchmark_symbols if symbol not in benchmark_source
+    ]
+    if missing_benchmark_symbols:
+        raise SystemExit(
+            "FAIL: benchmark is missing generated MMIO symbols: "
+            + ", ".join(missing_benchmark_symbols)
+        )
+    for literal in ("0x10000000ULL", "0x40010004", "0x40000000", "0x40000004", "0x40030004", "0x40030008"):
+        if literal in benchmark_source:
+            raise SystemExit(
+                f"FAIL: benchmark still hardcodes a mapped address: {literal}"
+            )
+
+    print("[PASS] firmware and benchmark use generated peripheral bases and register offsets")
 
 
 def check_models_use_generated_register_offsets():
